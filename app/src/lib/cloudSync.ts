@@ -127,6 +127,27 @@ export async function backupAllToCloud(): Promise<BackupResult> {
 }
 
 /**
+ * Löscht alle Cloud-Rezepte des aktuellen Users — die lokalen bleiben.
+ * Nützlich, wenn der User Cloud-Storage freiräumen will.
+ */
+export async function clearCloudBackup(): Promise<number> {
+  if (!supabase) throw new Error("Supabase ist nicht konfiguriert.");
+  const { data: sess } = await supabase.auth.getSession();
+  const userId = sess.session?.user.id;
+  if (!userId) throw new Error("Nicht eingeloggt.");
+
+  // Erst zählen, damit wir dem User sagen können wie viele weg sind
+  const { count } = await supabase
+    .from(TABLE)
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId);
+
+  const { error } = await supabase.from(TABLE).delete().eq("user_id", userId);
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+/**
  * Holt alle Cloud-Rezepte des Users und legt sie lokal an,
  * wenn die ID noch nicht existiert.
  */

@@ -37,6 +37,11 @@ type FilterContextValue = {
   setFilter: (next: RecipeFilterState) => void;
   resetFilter: () => void;
   activeCount: number;
+  // refreshKey wird inkrementiert, wenn sich der Rezept-Bestand "von außen"
+  // ändert (Cloud-Restore, Import) — damit die Hauptseite neu lädt, ohne
+  // dass der User extra wischen muss.
+  refreshKey: number;
+  bumpRefresh: () => void;
 };
 
 const FilterContext = createContext<FilterContextValue>({
@@ -44,12 +49,16 @@ const FilterContext = createContext<FilterContextValue>({
   setFilter: () => {},
   resetFilter: () => {},
   activeCount: 0,
+  refreshKey: 0,
+  bumpRefresh: () => {},
 });
 
 export function FilterProvider({ children }: { children: ReactNode }) {
   const [filter, setFilter] = useState<RecipeFilterState>(EMPTY_FILTER);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const resetFilter = useCallback(() => setFilter(EMPTY_FILTER), []);
+  const bumpRefresh = useCallback(() => setRefreshKey((k) => k + 1), []);
 
   // Wie viele Filter sind aktiv? Wird für das Badge auf dem Filter-Icon
   // genutzt. Volltext-Suche zählen wir hier NICHT mit, weil die ein
@@ -66,7 +75,9 @@ export function FilterProvider({ children }: { children: ReactNode }) {
   }, [filter]);
 
   return (
-    <FilterContext.Provider value={{ filter, setFilter, resetFilter, activeCount }}>
+    <FilterContext.Provider
+      value={{ filter, setFilter, resetFilter, activeCount, refreshKey, bumpRefresh }}
+    >
       {children}
     </FilterContext.Provider>
   );

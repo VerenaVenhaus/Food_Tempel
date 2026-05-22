@@ -17,10 +17,15 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { backupAllToCloud, restoreFromCloud } from "../lib/cloudSync";
+import {
+  backupAllToCloud,
+  clearCloudBackup,
+  restoreFromCloud,
+} from "../lib/cloudSync";
 import { importRecipeFromJson } from "../lib/importExport";
 import type { RootStackParamList } from "../navigation/types";
 import { useAuth } from "../state/AuthContext";
+import { useFilter } from "../state/FilterContext";
 import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 
 type Props = {
@@ -30,10 +35,11 @@ type Props = {
 
 export function ProfileMenu({ visible, onClose }: Props) {
   const { user, signOut } = useAuth();
+  const { bumpRefresh } = useFilter();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // Welche Aktion läuft gerade? Verhindert Doppelklick + zeigt Spinner.
-  const [busy, setBusy] = useState<null | "backup" | "restore" | "import">(null);
+  const [busy, setBusy] = useState<null | "backup" | "restore" | "import" | "clear">(null);
 
   function handleCreateRecipe() {
     onClose();
@@ -60,6 +66,7 @@ export function ProfileMenu({ visible, onClose }: Props) {
         encoding: FileSystem.EncodingType.UTF8,
       });
       await importRecipeFromJson(content);
+      bumpRefresh();
       onClose();
       Alert.alert("Importiert", "Das Rezept wurde zur Liste hinzugefügt.");
     } catch (err) {
@@ -107,10 +114,38 @@ export function ProfileMenu({ visible, onClose }: Props) {
     );
   }
 
+  function confirmClearCloud() {
+    Alert.alert(
+      "Cloud-Backup löschen?",
+      "Alle deine Cloud-Daten werden entfernt. Die lokalen Rezepte auf diesem Gerät bleiben unverändert.",
+      [
+        { text: "Abbrechen", style: "cancel" },
+        { text: "Löschen", style: "destructive", onPress: handleClearCloud },
+      ],
+    );
+  }
+
+  async function handleClearCloud() {
+    setBusy("clear");
+    try {
+      const count = await clearCloudBackup();
+      onClose();
+      Alert.alert("Cloud geleert", `${count} Cloud-Rezept(e) wurden entfernt.`);
+    } catch (err) {
+      Alert.alert(
+        "Löschen fehlgeschlagen",
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function handleRestore() {
     setBusy("restore");
     try {
       const r = await restoreFromCloud();
+      if (r.imported > 0) bumpRefresh();
       onClose();
       Alert.alert(
         "Wiederhergestellt",
@@ -163,6 +198,7 @@ export function ProfileMenu({ visible, onClose }: Props) {
                   {busy === "backup" && "Sichere zu Cloud…"}
                   {busy === "restore" && "Lade aus Cloud…"}
                   {busy === "import" && "Importiere…"}
+                  {busy === "clear" && "Lösche Cloud-Backup…"}
                 </Text>
               </View>
             ) : (
@@ -191,6 +227,11 @@ export function ProfileMenu({ visible, onClose }: Props) {
                   icon="🔄"
                   label="Aus Cloud wiederherstellen"
                   onPress={confirmRestore}
+                />
+                <MenuItem
+                  icon="🧹"
+                  label="Cloud-Backup leeren"
+                  onPress={confirmClearCloud}
                 />
 
                 <View style={styles.divider} />

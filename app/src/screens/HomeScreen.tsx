@@ -16,7 +16,7 @@ import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
 
 export function HomeScreen({ navigation }: Props) {
-  const { filter, setFilter, resetFilter, activeCount } = useFilter();
+  const { filter, setFilter, resetFilter, activeCount, refreshKey } = useFilter();
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -43,7 +43,7 @@ export function HomeScreen({ navigation }: Props) {
       return () => {
         active = false;
       };
-    }, [filter]),
+    }, [filter, refreshKey]),
   );
 
   return (
