@@ -29,7 +29,14 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Food_Tempel braucht Zugriff auf deine Galerie, um Rezept-Bilder auszuwählen.",
+          "cameraPermission": "Food_Tempel braucht Zugriff auf die Kamera, um Fotos von Rezepten zu machen."
+        }
+      ]
     ]
   }
 }

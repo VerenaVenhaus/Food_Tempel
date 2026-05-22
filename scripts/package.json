@@ -1,0 +1,13 @@
+{
+  "name": "food-tempel-scripts",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Einmalige Hilfs-Skripte fürs Projekt — nicht Teil der App.",
+  "scripts": {
+    "icons": "node convert-icons.mjs"
+  },
+  "dependencies": {
+    "jimp": "^1.6.0"
+  }
+}

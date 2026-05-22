@@ -87,6 +87,11 @@ export function HomeScreen({ navigation }: Props) {
           data={recipes}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
+          // Performance-Tuning bei langen Listen
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          removeClippedSubviews
           renderItem={({ item }) => (
             <RecipeCard
               title={item.title}
