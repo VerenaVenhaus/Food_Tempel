@@ -1,12 +1,24 @@
 // Slide-Menü für Konto-Aktionen + häufige Schnellzugriffe.
-// Geöffnet vom ☰-Knopf in der Navbar. Lässt sich später leicht erweitern
-// (Einstellungen, Theme, Cloud-Sync, App-Info, ...).
+// Geöffnet vom ☰-Knopf in der Navbar.
 
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
+import { useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { backupAllToCloud, restoreFromCloud } from "../lib/cloudSync";
+import { importRecipeFromJson } from "../lib/importExport";
 import type { RootStackParamList } from "../navigation/types";
 import { useAuth } from "../state/AuthContext";
 import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
@@ -18,15 +30,13 @@ type Props = {
 
 export function ProfileMenu({ visible, onClose }: Props) {
   const { user, signOut } = useAuth();
-  // useNavigation: gibt uns das navigation-Objekt für Stack-Aktionen,
-  // ohne dass wir es als Prop reinreichen müssen.
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  // Welche Aktion läuft gerade? Verhindert Doppelklick + zeigt Spinner.
+  const [busy, setBusy] = useState<null | "backup" | "restore" | "import">(null);
 
   function handleCreateRecipe() {
     onClose();
-    // Kleine Verzögerung, damit das Modal sauber schließt, bevor der
-    // RecipeForm-Modal sich öffnet (sonst können Animationen kollidieren).
     setTimeout(() => navigation.navigate("RecipeForm"), 50);
   }
 
@@ -36,6 +46,87 @@ export function ProfileMenu({ visible, onClose }: Props) {
     await signOut();
   }
 
+  // --- Import einer geteilten JSON-Datei ----------------------------------
+  async function handleImport() {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ["application/json", "text/plain"],
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled || !result.assets[0]) return;
+
+    setBusy("import");
+    try {
+      const content = await FileSystem.readAsStringAsync(result.assets[0].uri, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      await importRecipeFromJson(content);
+      onClose();
+      Alert.alert("Importiert", "Das Rezept wurde zur Liste hinzugefügt.");
+    } catch (err) {
+      Alert.alert(
+        "Import fehlgeschlagen",
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // --- Cloud-Backup --------------------------------------------------------
+  async function handleBackup() {
+    setBusy("backup");
+    try {
+      const r = await backupAllToCloud();
+      onClose();
+      const failedMsg =
+        r.failed.length > 0
+          ? `\n\nFehlgeschlagen: ${r.failed.length}\n${r.failed.map((f) => "• " + f.title).join("\n")}`
+          : "";
+      Alert.alert(
+        "Cloud-Backup",
+        `${r.uploaded} Rezept(e) gesichert.${failedMsg}`,
+      );
+    } catch (err) {
+      Alert.alert(
+        "Backup fehlgeschlagen",
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function confirmRestore() {
+    Alert.alert(
+      "Aus Cloud wiederherstellen?",
+      "Rezepte, die schon lokal existieren, werden übersprungen (kein Überschreiben).",
+      [
+        { text: "Abbrechen", style: "cancel" },
+        { text: "Wiederherstellen", onPress: handleRestore },
+      ],
+    );
+  }
+
+  async function handleRestore() {
+    setBusy("restore");
+    try {
+      const r = await restoreFromCloud();
+      onClose();
+      Alert.alert(
+        "Wiederhergestellt",
+        `Neu: ${r.imported}, übersprungen (schon da): ${r.skipped}` +
+          (r.failed.length > 0 ? `\nFehler: ${r.failed.length}` : ""),
+      );
+    } catch (err) {
+      Alert.alert(
+        "Wiederherstellen fehlgeschlagen",
+        err instanceof Error ? err.message : String(err),
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <Modal
       visible={visible}
@@ -43,9 +134,7 @@ export function ProfileMenu({ visible, onClose }: Props) {
       transparent
       onRequestClose={onClose}
     >
-      {/* Halbtransparenter Hintergrund — tap schließt das Menü */}
       <Pressable style={styles.backdrop} onPress={onClose}>
-        {/* Panel rechts statt links — passt zum Menü-Icon rechts in der Navbar */}
         <Pressable style={styles.panelRight} onPress={() => {}}>
           <SafeAreaView edges={["top"]}>
             <View style={styles.header}>
@@ -57,7 +146,6 @@ export function ProfileMenu({ visible, onClose }: Props) {
                 <Text style={styles.closeIcon}>✕</Text>
               </Pressable>
               <Text style={styles.title}>Menü</Text>
-              {/* Leerer View damit der Titel zentriert sitzt */}
               <View style={styles.headerSpacer} />
             </View>
 
@@ -68,22 +156,53 @@ export function ProfileMenu({ visible, onClose }: Props) {
               </Text>
             </View>
 
-            <View style={styles.divider} />
+            {busy ? (
+              <View style={styles.busyRow}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={styles.busyText}>
+                  {busy === "backup" && "Sichere zu Cloud…"}
+                  {busy === "restore" && "Lade aus Cloud…"}
+                  {busy === "import" && "Importiere…"}
+                </Text>
+              </View>
+            ) : (
+              <>
+                <View style={styles.divider} />
 
-            <MenuItem
-              icon="＋"
-              label="Rezept erstellen"
-              onPress={handleCreateRecipe}
-            />
+                <MenuItem
+                  icon="＋"
+                  label="Rezept erstellen"
+                  onPress={handleCreateRecipe}
+                />
+                <MenuItem
+                  icon="📥"
+                  label="Rezept importieren"
+                  onPress={handleImport}
+                />
 
-            <View style={styles.divider} />
+                <View style={styles.divider} />
 
-            <MenuItem
-              icon="🚪"
-              label="Abmelden"
-              danger
-              onPress={handleSignOut}
-            />
+                <MenuItem
+                  icon="☁️"
+                  label="In Cloud sichern"
+                  onPress={handleBackup}
+                />
+                <MenuItem
+                  icon="🔄"
+                  label="Aus Cloud wiederherstellen"
+                  onPress={confirmRestore}
+                />
+
+                <View style={styles.divider} />
+
+                <MenuItem
+                  icon="🚪"
+                  label="Abmelden"
+                  danger
+                  onPress={handleSignOut}
+                />
+              </>
+            )}
           </SafeAreaView>
         </Pressable>
       </Pressable>
@@ -207,5 +326,15 @@ const styles = StyleSheet.create({
   menuLabelDanger: {
     color: colors.danger,
     fontWeight: fontWeight.semibold,
+  },
+  busyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.lg,
+  },
+  busyText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
   },
 });

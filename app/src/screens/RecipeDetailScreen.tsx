@@ -11,6 +11,7 @@ import {
   getRecipeById,
   type RecipeWithDetails,
 } from "../db/repositories";
+import { shareRecipe } from "../lib/share";
 import type { RootStackParamList } from "../navigation/types";
 import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 
@@ -60,11 +61,30 @@ export function RecipeDetailScreen({ navigation, route }: Props) {
     );
   }
 
-  // Header-Buttons: Bearbeiten + Löschen
+  async function handleShare() {
+    if (!recipe) return;
+    try {
+      await shareRecipe(recipe);
+    } catch (err) {
+      Alert.alert(
+        "Teilen fehlgeschlagen",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  // Header-Buttons: Teilen + Bearbeiten + Löschen
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
         <View style={styles.headerActions}>
+          <Pressable
+            onPress={handleShare}
+            hitSlop={8}
+            accessibilityLabel="Rezept teilen"
+          >
+            <Text style={styles.headerAction}>↗</Text>
+          </Pressable>
           <Pressable
             onPress={() => navigation.navigate("RecipeForm", { editId: recipeId })}
             hitSlop={8}
@@ -83,7 +103,7 @@ export function RecipeDetailScreen({ navigation, route }: Props) {
       ),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigation, recipeId]);
+  }, [navigation, recipeId, recipe]);
 
   if (loading) {
     return <Text style={styles.loading}>Lade…</Text>;
