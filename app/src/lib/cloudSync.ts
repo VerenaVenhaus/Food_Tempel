@@ -127,6 +127,36 @@ export async function backupAllToCloud(): Promise<BackupResult> {
 }
 
 /**
+ * Sichert genau ein einzelnes Rezept in die Cloud (Upsert).
+ * Wird vom "Cloud-Backup für dieses Rezept"-Knopf in der Detailansicht
+ * verwendet.
+ */
+export async function backupSingleRecipeToCloud(
+  recipeId: string,
+): Promise<void> {
+  if (!supabase) throw new Error("Supabase ist nicht konfiguriert.");
+  const { data: sess } = await supabase.auth.getSession();
+  const userId = sess.session?.user.id;
+  if (!userId) throw new Error("Nicht eingeloggt.");
+
+  const detail = await getRecipeById(recipeId);
+  if (!detail) throw new Error("Rezept nicht gefunden.");
+  const envelope = toEnvelope(detail);
+
+  const { error } = await supabase.from(TABLE).upsert(
+    {
+      id: detail.id,
+      user_id: userId,
+      title: detail.title,
+      recipe_data: envelope,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "id" },
+  );
+  if (error) throw new Error(error.message);
+}
+
+/**
  * Löscht alle Cloud-Rezepte des aktuellen Users — die lokalen bleiben.
  * Nützlich, wenn der User Cloud-Storage freiräumen will.
  */
@@ -191,32 +221,37 @@ export async function restoreFromCloud(): Promise<RestoreResult> {
         .map((t) => allTags.find((x) => x.name.toLowerCase() === t.name.toLowerCase())?.id)
         .filter((id): id is string => !!id);
 
-      const recipeId = await createRecipe({
-        title: r.title,
-        description: r.description ?? undefined,
-        instructions: r.instructions,
-        prepTimeMinutes: r.prepTimeMinutes ?? undefined,
-        cookTimeMinutes: r.cookTimeMinutes ?? undefined,
-        servings: r.servings ?? undefined,
-        cuisine: r.cuisine ?? undefined,
-        mealType:
-          (r.mealType as
-            | "breakfast"
-            | "lunch"
-            | "dinner"
-            | "snack"
-            | "dessert"
-            | undefined) ?? undefined,
-        sourceType: "manual",
-        sourceUrl: r.sourceUrl ?? undefined,
-        ingredients: r.ingredients.map((i) => ({
-          name: i.name,
-          quantity: i.quantity,
-          unit: i.unit,
-          notes: i.notes,
-        })),
-        tagIds,
-      });
+      // Wichtig: ID aus der Cloud übernehmen, damit ein zweites Restore
+      // dieses Rezept als "schon vorhanden" erkennt und es überspringt.
+      const recipeId = await createRecipe(
+        {
+          title: r.title,
+          description: r.description ?? undefined,
+          instructions: r.instructions,
+          prepTimeMinutes: r.prepTimeMinutes ?? undefined,
+          cookTimeMinutes: r.cookTimeMinutes ?? undefined,
+          servings: r.servings ?? undefined,
+          cuisine: r.cuisine ?? undefined,
+          mealType:
+            (r.mealType as
+              | "breakfast"
+              | "lunch"
+              | "dinner"
+              | "snack"
+              | "dessert"
+              | undefined) ?? undefined,
+          sourceType: "manual",
+          sourceUrl: r.sourceUrl ?? undefined,
+          ingredients: r.ingredients.map((i) => ({
+            name: i.name,
+            quantity: i.quantity,
+            unit: i.unit,
+            notes: i.notes,
+          })),
+          tagIds,
+        },
+        { id: row.id as string },
+      );
 
       if (r.nutrition) {
         await saveNutrition(recipeId, {

@@ -11,6 +11,7 @@ import {
   getRecipeById,
   type RecipeWithDetails,
 } from "../db/repositories";
+import { backupSingleRecipeToCloud } from "../lib/cloudSync";
 import { shareRecipe } from "../lib/share";
 import type { RootStackParamList } from "../navigation/types";
 import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
@@ -73,6 +74,18 @@ export function RecipeDetailScreen({ navigation, route }: Props) {
     }
   }
 
+  async function handleBackupSingle() {
+    try {
+      await backupSingleRecipeToCloud(recipeId);
+      Alert.alert("Gesichert", "Dieses Rezept liegt jetzt in deiner Cloud.");
+    } catch (err) {
+      Alert.alert(
+        "Backup fehlgeschlagen",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
   // Header-Buttons: Teilen + Bearbeiten + Löschen
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -84,6 +97,13 @@ export function RecipeDetailScreen({ navigation, route }: Props) {
             accessibilityLabel="Rezept teilen"
           >
             <Text style={styles.headerAction}>↗</Text>
+          </Pressable>
+          <Pressable
+            onPress={handleBackupSingle}
+            hitSlop={8}
+            accessibilityLabel="Dieses Rezept in Cloud sichern"
+          >
+            <Text style={styles.headerAction}>☁️</Text>
           </Pressable>
           <Pressable
             onPress={() => navigation.navigate("RecipeForm", { editId: recipeId })}
@@ -420,7 +440,7 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: "row",
-    gap: spacing.md,
+    gap: spacing.sm, // etwas enger weil jetzt 4 Icons
     alignItems: "center",
   },
   headerAction: {

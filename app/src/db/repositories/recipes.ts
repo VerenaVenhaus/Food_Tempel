@@ -110,9 +110,16 @@ export async function getRecipeById(id: string): Promise<RecipeWithDetails | nul
 /**
  * Neues Rezept anlegen — inklusive Zutaten und Tag-Verknüpfungen.
  * Läuft als Transaktion: entweder alles wird geschrieben oder nichts.
+ *
+ * `opts.id`: explizite ID statt einer neu generierten. Wird beim
+ * Cloud-Restore genutzt, damit die Original-ID erhalten bleibt — sonst
+ * würden Re-Restores Duplikate erzeugen.
  */
-export async function createRecipe(input: CreateRecipeInput): Promise<string> {
-  const recipeId = newId();
+export async function createRecipe(
+  input: CreateRecipeInput,
+  opts?: { id?: string },
+): Promise<string> {
+  const recipeId = opts?.id ?? newId();
   const now = Date.now();
 
   // Drizzle bietet `db.transaction(...)` — alles innerhalb wird zusammen
