@@ -1,0 +1,357 @@
+// Repository-Layer für Rezepte.
+// Statt überall in der App rohe Drizzle-Queries zu schreiben, kapseln wir
+// die Datenbank-Operationen hier. UI-Komponenten rufen z.B. `listRecipes()`
+// auf — wie das intern funktioniert, wissen sie nicht.
+// Vorteile: Tests, Wiederverwendung, später-Swap auf Cloud-DB einfacher.
+
+import { and, asc, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+
+import { getDb } from "../client";
+import {
+  ingredients,
+  type NewRecipe,
+  type NewRecipeIngredient,
+  type Recipe,
+  recipeIngredients,
+  recipes,
+  recipeTags,
+  tags,
+} from "../schema";
+import { newId } from "../uuid";
+
+// Eine "volle" Rezeptansicht: Rezept-Daten + Zutaten + Tags zusammen.
+// In der DB sind das drei Tabellen, in der UI wollen wir aber ein Objekt.
+export type RecipeWithDetails = Recipe & {
+  ingredients: Array<{
+    id: string;
+    name: string;
+    quantity: number | null;
+    unit: string | null;
+    notes: string | null;
+  }>;
+  tags: Array<{ id: string; name: string; category: string }>;
+};
+
+// Eingabe-Form für ein neues Rezept aus der UI.
+// `id`, `createdAt`, `updatedAt` setzen wir selbst.
+export type CreateRecipeInput = Omit<NewRecipe, "id" | "createdAt" | "updatedAt"> & {
+  ingredients?: Array<{
+    name: string;
+    quantity?: number | null;
+    unit?: string | null;
+    notes?: string | null;
+  }>;
+  tagIds?: string[];
+};
+
+/**
+ * Listet alle Rezepte alphabetisch (für die Hauptseite).
+ * Optional Suchstring im Titel oder in der Beschreibung.
+ */
+export async function listRecipes(search?: string): Promise<Recipe[]> {
+  if (search && search.trim().length > 0) {
+    const pattern = `%${search.trim()}%`;
+    return getDb()
+      .select()
+      .from(recipes)
+      .where(or(like(recipes.title, pattern), like(recipes.description, pattern)))
+      .orderBy(asc(recipes.title));
+  }
+  return getDb().select().from(recipes).orderBy(asc(recipes.title));
+}
+
+/**
+ * Holt ein einzelnes Rezept mit allen Details (Zutaten + Tags).
+ * Gibt null zurück wenn nicht gefunden.
+ */
+export async function getRecipeById(id: string): Promise<RecipeWithDetails | null> {
+  const [recipe] = await getDb().select().from(recipes).where(eq(recipes.id, id));
+  if (!recipe) return null;
+
+  // Zutaten + Stammnamen joinen
+  const ingRows = await getDb()
+    .select({
+      id: recipeIngredients.id,
+      name: ingredients.name,
+      quantity: recipeIngredients.quantity,
+      unit: recipeIngredients.unit,
+      notes: recipeIngredients.notes,
+      sortOrder: recipeIngredients.sortOrder,
+    })
+    .from(recipeIngredients)
+    .innerJoin(ingredients, eq(recipeIngredients.ingredientId, ingredients.id))
+    .where(eq(recipeIngredients.recipeId, id))
+    .orderBy(asc(recipeIngredients.sortOrder));
+
+  // Tags joinen
+  const tagRows = await getDb()
+    .select({ id: tags.id, name: tags.name, category: tags.category })
+    .from(recipeTags)
+    .innerJoin(tags, eq(recipeTags.tagId, tags.id))
+    .where(eq(recipeTags.recipeId, id));
+
+  return {
+    ...recipe,
+    ingredients: ingRows.map(({ sortOrder: _ignored, ...rest }) => rest),
+    tags: tagRows,
+  };
+}
+
+/**
+ * Neues Rezept anlegen — inklusive Zutaten und Tag-Verknüpfungen.
+ * Läuft als Transaktion: entweder alles wird geschrieben oder nichts.
+ */
+export async function createRecipe(input: CreateRecipeInput): Promise<string> {
+  const recipeId = newId();
+  const now = Date.now();
+
+  // Drizzle bietet `db.transaction(...)` — alles innerhalb wird zusammen
+  // committed; bei einem Fehler wird automatisch zurückgerollt.
+  await getDb().transaction(async (tx) => {
+    // 1. Das Rezept selbst
+    await tx.insert(recipes).values({
+      id: recipeId,
+      title: input.title,
+      description: input.description,
+      instructions: input.instructions,
+      prepTimeMinutes: input.prepTimeMinutes,
+      cookTimeMinutes: input.cookTimeMinutes,
+      servings: input.servings,
+      imageUri: input.imageUri,
+      sourceType: input.sourceType,
+      sourceUrl: input.sourceUrl,
+      cuisine: input.cuisine,
+      mealType: input.mealType,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    // 2. Zutaten: jede Zutat in der Stammtabelle anlegen (falls neu),
+    //    dann Verknüpfung in recipe_ingredients schreiben.
+    if (input.ingredients && input.ingredients.length > 0) {
+      for (let i = 0; i < input.ingredients.length; i++) {
+        const ing = input.ingredients[i];
+
+        // findOrCreate für Zutaten
+        let ingredientId: string;
+        const [existing] = await tx
+          .select()
+          .from(ingredients)
+          .where(eq(ingredients.name, ing.name));
+        if (existing) {
+          ingredientId = existing.id;
+        } else {
+          ingredientId = newId();
+          await tx
+            .insert(ingredients)
+            .values({ id: ingredientId, name: ing.name });
+        }
+
+        const link: NewRecipeIngredient = {
+          id: newId(),
+          recipeId,
+          ingredientId,
+          quantity: ing.quantity ?? null,
+          unit: ing.unit ?? null,
+          notes: ing.notes ?? null,
+          sortOrder: i,
+        };
+        await tx.insert(recipeIngredients).values(link);
+      }
+    }
+
+    // 3. Tags verknüpfen
+    if (input.tagIds && input.tagIds.length > 0) {
+      for (const tagId of input.tagIds) {
+        await tx.insert(recipeTags).values({ recipeId, tagId });
+      }
+    }
+  });
+
+  return recipeId;
+}
+
+/**
+ * Einzelfelder eines Rezepts aktualisieren (kein Zutaten-/Tag-Update).
+ * Wird z.B. genutzt, um nur den Titel oder die Beschreibung zu ändern.
+ */
+export async function updateRecipe(
+  id: string,
+  patch: Partial<NewRecipe>,
+): Promise<void> {
+  await getDb()
+    .update(recipes)
+    .set({ ...patch, updatedAt: Date.now() })
+    .where(eq(recipes.id, id));
+}
+
+/**
+ * Komplettes Update inkl. Zutaten und Tags.
+ * Wird vom Bearbeiten-Formular genutzt: vorhandene Zutaten/Tags werden
+ * gelöscht und neu angelegt. Das ist nicht super effizient, aber einfach
+ * und korrekt.
+ */
+export async function updateRecipeWithDetails(
+  id: string,
+  input: CreateRecipeInput,
+): Promise<void> {
+  const now = Date.now();
+
+  await getDb().transaction(async (tx) => {
+    // 1. Rezept-Hauptdaten aktualisieren
+    await tx
+      .update(recipes)
+      .set({
+        title: input.title,
+        description: input.description,
+        instructions: input.instructions,
+        prepTimeMinutes: input.prepTimeMinutes,
+        cookTimeMinutes: input.cookTimeMinutes,
+        servings: input.servings,
+        imageUri: input.imageUri,
+        sourceType: input.sourceType,
+        sourceUrl: input.sourceUrl,
+        cuisine: input.cuisine,
+        mealType: input.mealType,
+        updatedAt: now,
+      })
+      .where(eq(recipes.id, id));
+
+    // 2. Alte Zutaten-Zeilen wegwerfen, neue einfügen
+    await tx.delete(recipeIngredients).where(eq(recipeIngredients.recipeId, id));
+
+    if (input.ingredients && input.ingredients.length > 0) {
+      for (let i = 0; i < input.ingredients.length; i++) {
+        const ing = input.ingredients[i];
+
+        let ingredientId: string;
+        const [existing] = await tx
+          .select()
+          .from(ingredients)
+          .where(eq(ingredients.name, ing.name));
+        if (existing) {
+          ingredientId = existing.id;
+        } else {
+          ingredientId = newId();
+          await tx
+            .insert(ingredients)
+            .values({ id: ingredientId, name: ing.name });
+        }
+
+        await tx.insert(recipeIngredients).values({
+          id: newId(),
+          recipeId: id,
+          ingredientId,
+          quantity: ing.quantity ?? null,
+          unit: ing.unit ?? null,
+          notes: ing.notes ?? null,
+          sortOrder: i,
+        });
+      }
+    }
+
+    // 3. Tag-Verknüpfungen wegwerfen, neue setzen
+    await tx.delete(recipeTags).where(eq(recipeTags.recipeId, id));
+    if (input.tagIds && input.tagIds.length > 0) {
+      for (const tagId of input.tagIds) {
+        await tx.insert(recipeTags).values({ recipeId: id, tagId });
+      }
+    }
+  });
+}
+
+/**
+ * Rezept löschen. Zutaten-Verknüpfungen und Tag-Links verschwinden
+ * automatisch via ON DELETE CASCADE.
+ */
+export async function deleteRecipe(id: string): Promise<void> {
+  await getDb().delete(recipes).where(eq(recipes.id, id));
+}
+
+/**
+ * Filterung der Rezepte mit verschiedenen Kriterien.
+ *
+ * Logik je Feld:
+ *  - search          → ODER innerhalb Titel/Beschreibung
+ *  - cuisines        → ODER (Rezept hat eine dieser Küchen)
+ *  - mealTypes       → ODER (Rezept hat einen dieser Mahlzeitentypen)
+ *  - tagIds          → UND  (Rezept hat ALLE diese Tags)
+ *  - ingredientNames → UND  (Rezept enthält ALLE diese Zutaten)
+ *
+ * Die UND-Logik bei Tags/Zutaten ist die nützlichere Default-Annahme:
+ *   "vegan UND glutenfrei" filtert sinnvoll, "vegan ODER glutenfrei"
+ *   würde fast alles zurückgeben.
+ */
+export type RecipeFilter = {
+  search?: string;
+  cuisines?: string[];
+  mealTypes?: string[];
+  tagIds?: string[];
+  ingredientNames?: string[];
+};
+
+export async function filterRecipes(filter: RecipeFilter): Promise<Recipe[]> {
+  const conditions = [];
+
+  if (filter.search && filter.search.trim().length > 0) {
+    const pattern = `%${filter.search.trim()}%`;
+    conditions.push(
+      or(like(recipes.title, pattern), like(recipes.description, pattern)),
+    );
+  }
+
+  if (filter.cuisines && filter.cuisines.length > 0) {
+    conditions.push(inArray(recipes.cuisine, filter.cuisines));
+  }
+
+  if (filter.mealTypes && filter.mealTypes.length > 0) {
+    type MealType = NonNullable<Recipe["mealType"]>;
+    conditions.push(inArray(recipes.mealType, filter.mealTypes as MealType[]));
+  }
+
+  // Tag-AND: pro Tag eine EXISTS-Subquery — Rezept muss für jeden Tag
+  // mindestens einen Treffer in recipe_tags haben.
+  if (filter.tagIds && filter.tagIds.length > 0) {
+    for (const tagId of filter.tagIds) {
+      conditions.push(
+        sql`EXISTS (
+          SELECT 1 FROM ${recipeTags}
+          WHERE ${recipeTags.recipeId} = ${recipes.id}
+            AND ${recipeTags.tagId} = ${tagId}
+        )`,
+      );
+    }
+  }
+
+  // Zutaten-AND: gleiches Muster über recipe_ingredients ⨝ ingredients.name
+  if (filter.ingredientNames && filter.ingredientNames.length > 0) {
+    for (const ingName of filter.ingredientNames) {
+      conditions.push(
+        sql`EXISTS (
+          SELECT 1 FROM ${recipeIngredients}
+          INNER JOIN ${ingredients}
+            ON ${ingredients.id} = ${recipeIngredients.ingredientId}
+          WHERE ${recipeIngredients.recipeId} = ${recipes.id}
+            AND ${ingredients.name} = ${ingName}
+        )`,
+      );
+    }
+  }
+
+  const query = getDb().select().from(recipes);
+  if (conditions.length > 0) {
+    return query.where(and(...conditions)).orderBy(asc(recipes.title));
+  }
+  return query.orderBy(asc(recipes.title));
+}
+
+/**
+ * Letzte zuerst — für eine "Zuletzt hinzugefügt"-Sektion auf der Startseite.
+ */
+export async function getRecentRecipes(limit: number = 5): Promise<Recipe[]> {
+  return getDb()
+    .select()
+    .from(recipes)
+    .orderBy(desc(recipes.createdAt))
+    .limit(limit);
+}

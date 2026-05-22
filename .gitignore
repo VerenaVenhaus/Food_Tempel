@@ -1,0 +1,50 @@
+# Node / npm
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Expo
+.expo/
+.expo-shared/
+dist/
+web-build/
+*.tsbuildinfo
+
+# Native build artifacts
+android/
+ios/
+*.apk
+*.aab
+*.ipa
+
+# Environment / Secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs / Caches
+*.log
+.cache/
+coverage/
+
+# Local SQLite databases (Entwicklungsdaten)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+
+# Build-Outputs
+build/
+out/
