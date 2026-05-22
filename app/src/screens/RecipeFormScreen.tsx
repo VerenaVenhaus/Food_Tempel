@@ -20,12 +20,20 @@ import { FormField } from "../components/FormField";
 import { ImagePickerField } from "../components/ImagePickerField";
 import { ImportSection } from "../components/ImportSection";
 import { IngredientList, type IngredientDraft } from "../components/IngredientList";
+import {
+  EMPTY_NUTRITION,
+  NutritionSection,
+  type NutritionDraft,
+} from "../components/NutritionSection";
 import { SelectChips } from "../components/SelectChips";
 import type { ExtractedRecipe } from "../lib/api";
 import {
   createRecipe,
+  deleteNutrition,
+  getNutrition,
   getRecipeById,
   listTags,
+  saveNutrition,
   updateRecipeWithDetails,
   type CreateRecipeInput,
 } from "../db/repositories";
@@ -88,6 +96,8 @@ export function RecipeFormScreen({ navigation, route }: Props) {
   // Tags gruppiert nach Kategorie — bekommen wir aus listTags() und packen
   // sie hier in ein Map-artiges Objekt für die Render-Schleife unten.
   const [tagsByCategory, setTagsByCategory] = useState<Record<string, Tag[]>>({});
+  const [nutritionDraft, setNutritionDraft] =
+    useState<NutritionDraft>(EMPTY_NUTRITION);
 
   // UI-State
   const [saving, setSaving] = useState(false);
@@ -151,6 +161,17 @@ export function RecipeFormScreen({ navigation, route }: Props) {
         })),
       );
       setSelectedTagIds(data.tags.map((t) => t.id));
+      // Nährwerte vorbefüllen, falls vorhanden
+      if (data.nutrition) {
+        setNutritionDraft({
+          calories: data.nutrition.calories != null ? String(data.nutrition.calories) : "",
+          proteinG: data.nutrition.proteinG != null ? String(data.nutrition.proteinG) : "",
+          carbsG: data.nutrition.carbsG != null ? String(data.nutrition.carbsG) : "",
+          fatG: data.nutrition.fatG != null ? String(data.nutrition.fatG) : "",
+          fiberG: data.nutrition.fiberG != null ? String(data.nutrition.fiberG) : "",
+          sugarG: data.nutrition.sugarG != null ? String(data.nutrition.sugarG) : "",
+        });
+      }
     })();
   }, [editId]);
 
@@ -220,17 +241,50 @@ export function RecipeFormScreen({ navigation, route }: Props) {
     }
   }
 
+  // Wandelt den Nutrition-String-Draft in das DB-Format um.
+  // Ein leerer String wird zu null — heißt "nicht erfasst".
+  function buildNutrition() {
+    const parse = (s: string): number | null => {
+      const t = s.trim().replace(",", ".");
+      if (!t) return null;
+      const n = parseFloat(t);
+      return Number.isFinite(n) ? n : null;
+    };
+    return {
+      calories: parse(nutritionDraft.calories),
+      proteinG: parse(nutritionDraft.proteinG),
+      carbsG: parse(nutritionDraft.carbsG),
+      fatG: parse(nutritionDraft.fatG),
+      fiberG: parse(nutritionDraft.fiberG),
+      sugarG: parse(nutritionDraft.sugarG),
+    };
+  }
+
   async function save() {
     if (!validate()) return;
     setSaving(true);
     try {
       const input = buildInput();
+      let recipeId: string;
       if (editId) {
         await updateRecipeWithDetails(editId, input);
+        recipeId = editId;
       } else {
-        await createRecipe(input);
+        recipeId = await createRecipe(input);
       }
-      // Zurück zur vorigen Seite (Hauptseite oder Detail)
+
+      // Nährwerte: speichern wenn mindestens ein Wert eingetragen wurde,
+      // sonst Zeile löschen (falls vorhanden).
+      const nutritionValues = buildNutrition();
+      const hasAnyNutrition = Object.values(nutritionValues).some((v) => v != null);
+      if (hasAnyNutrition) {
+        await saveNutrition(recipeId, { ...nutritionValues, source: "manual" });
+      } else if (editId) {
+        // Beim Bearbeiten: wenn alle Werte gelöscht wurden, auch DB-Zeile weg.
+        const existing = await getNutrition(editId);
+        if (existing) await deleteNutrition(editId);
+      }
+
       navigation.goBack();
     } catch (err) {
       Alert.alert("Fehler", err instanceof Error ? err.message : String(err));
@@ -365,6 +419,33 @@ export function RecipeFormScreen({ navigation, route }: Props) {
             </CollapsibleSection>
           );
         })}
+
+        {/* Nährwerte — ganz unten in den Kategorien, weil optional/aufwändiger */}
+        {(() => {
+          const filledCount = Object.values(nutritionDraft).filter(
+            (v) => v.trim().length > 0,
+          ).length;
+          return (
+            <CollapsibleSection
+              title="Nährwerte (pro Portion)"
+              badge={filledCount}
+              defaultOpen={filledCount > 0}
+            >
+              <NutritionSection
+                value={nutritionDraft}
+                onChange={setNutritionDraft}
+                ingredients={ingredients
+                  .filter((i) => i.name.trim().length > 0)
+                  .map((i) => ({
+                    name: i.name.trim(),
+                    quantity: parseFloatOrNull(i.quantity) ?? null,
+                    unit: i.unit.trim() || null,
+                  }))}
+                servings={parseIntOrNull(servings) ?? 1}
+              />
+            </CollapsibleSection>
+          );
+        })()}
 
         {/* Großer Speichern-Button am Ende — manche User finden den Header-Button schwer */}
         <Pressable

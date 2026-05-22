@@ -11,6 +11,7 @@ import Fastify from "fastify";
 
 import { extractRoutes } from "./routes/extract.js";
 import { healthRoutes } from "./routes/health.js";
+import { nutritionRoutes } from "./routes/nutrition.js";
 
 const server = Fastify({
   // Logger an, damit wir Requests im Terminal sehen
@@ -33,6 +34,7 @@ async function start() {
   // Routen registrieren
   await server.register(healthRoutes);
   await server.register(extractRoutes);
+  await server.register(nutritionRoutes);
 
   // Globaler Error-Handler — falls irgendwo was wirft, formatieren wir
   // das einheitlich.

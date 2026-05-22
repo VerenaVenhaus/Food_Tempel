@@ -4,7 +4,7 @@
 
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useEffect, useLayoutEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { SelectChips } from "../components/SelectChips";
 import { listIngredients, listTags } from "../db/repositories";
@@ -146,6 +146,40 @@ export function FilterScreen({ navigation }: Props) {
             />
           </Section>
         )}
+
+        <Section
+          title="Nährwerte (pro Portion)"
+          subtitle="Nur Rezepte mit erfassten Nährwerten erscheinen, wenn aktiv."
+        >
+          <View style={styles.nutritionRow}>
+            <View style={styles.nutritionInput}>
+              <Text style={styles.nutritionLabel}>max. Kalorien (kcal)</Text>
+              <TextInput
+                value={draft.maxCalories != null ? String(draft.maxCalories) : ""}
+                onChangeText={(t) =>
+                  setDraft({ ...draft, maxCalories: t.trim() ? Number(t) : null })
+                }
+                placeholder="z.B. 500"
+                placeholderTextColor={colors.textMuted}
+                style={styles.input}
+                keyboardType="numeric"
+              />
+            </View>
+            <View style={styles.nutritionInput}>
+              <Text style={styles.nutritionLabel}>min. Protein (g)</Text>
+              <TextInput
+                value={draft.minProtein != null ? String(draft.minProtein) : ""}
+                onChangeText={(t) =>
+                  setDraft({ ...draft, minProtein: t.trim() ? Number(t) : null })
+                }
+                placeholder="z.B. 20"
+                placeholderTextColor={colors.textMuted}
+                style={styles.input}
+                keyboardType="numeric"
+              />
+            </View>
+          </View>
+        </Section>
       </ScrollView>
 
       {/* Sticky Apply-Bar unten */}
@@ -238,5 +272,29 @@ const styles = StyleSheet.create({
     color: colors.freshDark,
     fontSize: fontSize.sm,
     paddingHorizontal: spacing.sm,
+  },
+  nutritionRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  nutritionInput: {
+    flex: 1,
+    gap: 4,
+  },
+  nutritionLabel: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  input: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: fontSize.md,
+    color: colors.textPrimary,
+    minHeight: 44,
+    outlineStyle: "none" as never,
   },
 });

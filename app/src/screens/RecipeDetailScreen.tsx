@@ -169,6 +169,21 @@ export function RecipeDetailScreen({ navigation, route }: Props) {
         ))
       )}
 
+      {/* Nährwerte (optional) */}
+      {recipe.nutrition && (
+        <>
+          <Text style={styles.sectionTitle}>Nährwerte (pro Portion)</Text>
+          <View style={styles.nutritionGrid}>
+            <NutritionCell label="Kalorien" value={recipe.nutrition.calories} unit="kcal" />
+            <NutritionCell label="Protein" value={recipe.nutrition.proteinG} unit="g" />
+            <NutritionCell label="Kohlenhydrate" value={recipe.nutrition.carbsG} unit="g" />
+            <NutritionCell label="Fett" value={recipe.nutrition.fatG} unit="g" />
+            <NutritionCell label="Ballaststoffe" value={recipe.nutrition.fiberG} unit="g" />
+            <NutritionCell label="Zucker" value={recipe.nutrition.sugarG} unit="g" />
+          </View>
+        </>
+      )}
+
       {/* Anleitung */}
       <Text style={styles.sectionTitle}>Zubereitung</Text>
       {steps.length === 0 ? (
@@ -184,6 +199,27 @@ export function RecipeDetailScreen({ navigation, route }: Props) {
         ))
       )}
     </ScrollView>
+  );
+}
+
+// Zelle in der Nährwert-Tabelle. Zeigt nichts, wenn kein Wert da ist.
+function NutritionCell({
+  label,
+  value,
+  unit,
+}: {
+  label: string;
+  value: number | null;
+  unit: string;
+}) {
+  if (value == null) return null;
+  return (
+    <View style={styles.nutritionCell}>
+      <Text style={styles.nutritionValue}>
+        {value} <Text style={styles.nutritionUnit}>{unit}</Text>
+      </Text>
+      <Text style={styles.nutritionLabel}>{label}</Text>
+    </View>
   );
 }
 
@@ -332,6 +368,35 @@ const styles = StyleSheet.create({
   muted: {
     color: colors.textMuted,
     fontStyle: "italic",
+  },
+  nutritionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  nutritionCell: {
+    width: "31%",
+    backgroundColor: colors.freshLight,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+    alignItems: "center",
+    gap: 2,
+  },
+  nutritionValue: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.freshDark,
+  },
+  nutritionUnit: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.regular,
+    color: colors.textSecondary,
+  },
+  nutritionLabel: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    textAlign: "center",
   },
   headerActions: {
     flexDirection: "row",

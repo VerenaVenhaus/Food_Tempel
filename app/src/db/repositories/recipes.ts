@@ -11,6 +11,8 @@ import {
   ingredients,
   type NewRecipe,
   type NewRecipeIngredient,
+  nutrition,
+  type Nutrition,
   type Recipe,
   recipeIngredients,
   recipes,
@@ -30,6 +32,7 @@ export type RecipeWithDetails = Recipe & {
     notes: string | null;
   }>;
   tags: Array<{ id: string; name: string; category: string }>;
+  nutrition: Nutrition | null;
 };
 
 // Eingabe-Form für ein neues Rezept aus der UI.
@@ -90,10 +93,17 @@ export async function getRecipeById(id: string): Promise<RecipeWithDetails | nul
     .innerJoin(tags, eq(recipeTags.tagId, tags.id))
     .where(eq(recipeTags.recipeId, id));
 
+  // Nährwerte (optional — kann null sein)
+  const [nutritionRow] = await getDb()
+    .select()
+    .from(nutrition)
+    .where(eq(nutrition.recipeId, id));
+
   return {
     ...recipe,
     ingredients: ingRows.map(({ sortOrder: _ignored, ...rest }) => rest),
     tags: tagRows,
+    nutrition: nutritionRow ?? null,
   };
 }
 
@@ -288,6 +298,10 @@ export type RecipeFilter = {
   mealTypes?: string[];
   tagIds?: string[];
   ingredientNames?: string[];
+  // Nährwerte-Filter (pro Portion). Rezepte ohne erfasste Nährwerte werden
+  // ausgeschlossen, wenn einer dieser Filter aktiv ist.
+  maxCalories?: number | null;
+  minProtein?: number | null;
 };
 
 export async function filterRecipes(filter: RecipeFilter): Promise<Recipe[]> {
@@ -321,6 +335,31 @@ export async function filterRecipes(filter: RecipeFilter): Promise<Recipe[]> {
         )`,
       );
     }
+  }
+
+  // Nährwerte-Filter: EXISTS-Subquery auf nutrition. Beide Filter werden
+  // mit AND verknüpft (max-Kalorien UND min-Protein müssen erfüllt sein).
+  if (filter.maxCalories != null) {
+    const max = filter.maxCalories;
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${nutrition}
+        WHERE ${nutrition.recipeId} = ${recipes.id}
+          AND ${nutrition.calories} IS NOT NULL
+          AND ${nutrition.calories} <= ${max}
+      )`,
+    );
+  }
+  if (filter.minProtein != null) {
+    const min = filter.minProtein;
+    conditions.push(
+      sql`EXISTS (
+        SELECT 1 FROM ${nutrition}
+        WHERE ${nutrition.recipeId} = ${recipes.id}
+          AND ${nutrition.proteinG} IS NOT NULL
+          AND ${nutrition.proteinG} >= ${min}
+      )`,
+    );
   }
 
   // Zutaten-AND: gleiches Muster über recipe_ingredients ⨝ ingredients.name

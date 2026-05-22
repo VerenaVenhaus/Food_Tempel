@@ -111,3 +111,23 @@ export async function extractFromPdf(
     body: JSON.stringify({ pdfBase64 }),
   });
 }
+
+export type NutritionResult = {
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+  fiberG: number;
+  sugarG: number;
+  missingIngredients: string[];
+};
+
+export async function calculateNutrition(
+  ingredients: Array<{ name: string; quantity?: number | null; unit?: string | null }>,
+  servings: number,
+): Promise<ApiResult<NutritionResult>> {
+  return request("/nutrition/calculate", {
+    method: "POST",
+    body: JSON.stringify({ ingredients, servings: Math.max(1, servings) }),
+  });
+}

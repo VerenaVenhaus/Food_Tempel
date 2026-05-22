@@ -32,6 +32,8 @@ export function HomeScreen({ navigation }: Props) {
           tagIds: filter.tagIds.length > 0 ? filter.tagIds : undefined,
           ingredientNames:
             filter.ingredientNames.length > 0 ? filter.ingredientNames : undefined,
+          maxCalories: filter.maxCalories,
+          minProtein: filter.minProtein,
         });
         if (active) {
           setRecipes(list);

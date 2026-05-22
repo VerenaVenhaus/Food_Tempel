@@ -17,6 +17,9 @@ export type RecipeFilterState = {
   cuisines: string[];
   tagIds: string[];
   ingredientNames: string[];
+  // Nährwerte-Filter (pro Portion). null = nicht gesetzt.
+  maxCalories: number | null;
+  minProtein: number | null;
 };
 
 const EMPTY_FILTER: RecipeFilterState = {
@@ -25,6 +28,8 @@ const EMPTY_FILTER: RecipeFilterState = {
   cuisines: [],
   tagIds: [],
   ingredientNames: [],
+  maxCalories: null,
+  minProtein: null,
 };
 
 type FilterContextValue = {
@@ -55,6 +60,8 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     n += filter.cuisines.length;
     n += filter.tagIds.length;
     n += filter.ingredientNames.length;
+    if (filter.maxCalories != null) n++;
+    if (filter.minProtein != null) n++;
     return n;
   }, [filter]);
 
