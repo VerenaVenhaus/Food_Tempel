@@ -37,6 +37,12 @@
           "cameraPermission": "Food_Tempel braucht Zugriff auf die Kamera, um Fotos von Rezepten zu machen."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "125f6ecc-6a57-4d70-9f6b-af08fe893359"
+      }
+    },
+    "owner": "verenav"
   }
 }
