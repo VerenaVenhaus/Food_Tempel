@@ -8,7 +8,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
-import type { ApiResult, ExtractedRecipe } from "@shared/types.js";
+import type { ApiResult, ExtractedRecipe } from "../types.js";
 import {
   extractFromImage,
   extractFromText,

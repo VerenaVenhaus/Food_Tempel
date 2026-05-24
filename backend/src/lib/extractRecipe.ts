@@ -5,7 +5,7 @@
 // Wir nutzen Google Gemini (Free Tier) — gemini-2.0-flash hat Vision-Support
 // und liefert JSON-formatiertes Output zuverlässig.
 
-import type { ExtractedRecipe } from "@shared/types.js";
+import type { ExtractedRecipe } from "../types.js";
 
 import { getGemini, MODEL } from "./gemini.js";
 
