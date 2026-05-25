@@ -6,6 +6,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
+import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
 import { SelectChips } from "../components/SelectChips";
 import { listIngredients, listTags } from "../db/repositories";
 import type { Ingredient, Tag } from "../db/schema";
@@ -133,19 +134,20 @@ export function FilterScreen({ navigation }: Props) {
           </Section>
         ))}
 
-        {ingredientOptions.length > 0 && (
-          <Section
-            title="Zutaten enthalten"
-            subtitle={`"Was kann ich kochen?" — Rezepte, die ALLE markierten Zutaten enthalten`}
-          >
-            <SelectChips
-              options={ingredientOptions}
-              value={draft.ingredientNames}
-              onChange={(v) => setDraft({ ...draft, ingredientNames: v })}
-              multiSelect
-            />
-          </Section>
-        )}
+        <Section
+          title="Zutaten enthalten"
+          subtitle={`"Was kann ich kochen?" — Rezepte, die ALLE markierten Zutaten enthalten`}
+        >
+          <MultiSelectDropdown
+            options={ingredientOptions}
+            value={draft.ingredientNames}
+            onChange={(v) => setDraft({ ...draft, ingredientNames: v })}
+            placeholder="Zutaten auswählen…"
+            modalTitle="Zutaten auswählen"
+            searchPlaceholder="Zutat suchen…"
+            emptyMessage="Noch keine Zutaten erfasst. Sobald du Rezepte mit Zutaten anlegst, erscheinen sie hier."
+          />
+        </Section>
 
         <Section
           title="Nährwerte (pro Portion)"

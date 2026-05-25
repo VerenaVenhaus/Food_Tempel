@@ -4,7 +4,7 @@
 // auf — wie das intern funktioniert, wissen sie nicht.
 // Vorteile: Tests, Wiederverwendung, später-Swap auf Cloud-DB einfacher.
 
-import { and, asc, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
 
 import { getDb } from "../client";
 import {
@@ -49,7 +49,7 @@ export type CreateRecipeInput = Omit<NewRecipe, "id" | "createdAt" | "updatedAt"
 
 /**
  * Listet alle Rezepte alphabetisch (für die Hauptseite).
- * Optional Suchstring im Titel oder in der Beschreibung.
+ * Optional Suchstring — gematcht wird ausschließlich der Titel.
  */
 export async function listRecipes(search?: string): Promise<Recipe[]> {
   if (search && search.trim().length > 0) {
@@ -57,7 +57,7 @@ export async function listRecipes(search?: string): Promise<Recipe[]> {
     return getDb()
       .select()
       .from(recipes)
-      .where(or(like(recipes.title, pattern), like(recipes.description, pattern)))
+      .where(like(recipes.title, pattern))
       .orderBy(asc(recipes.title));
   }
   return getDb().select().from(recipes).orderBy(asc(recipes.title));
@@ -289,7 +289,7 @@ export async function deleteRecipe(id: string): Promise<void> {
  * Filterung der Rezepte mit verschiedenen Kriterien.
  *
  * Logik je Feld:
- *  - search          → ODER innerhalb Titel/Beschreibung
+ *  - search          → nur im Titel (case-insensitive durch SQLite-LIKE)
  *  - cuisines        → ODER (Rezept hat eine dieser Küchen)
  *  - mealTypes       → ODER (Rezept hat einen dieser Mahlzeitentypen)
  *  - tagIds          → UND  (Rezept hat ALLE diese Tags)
@@ -316,9 +316,7 @@ export async function filterRecipes(filter: RecipeFilter): Promise<Recipe[]> {
 
   if (filter.search && filter.search.trim().length > 0) {
     const pattern = `%${filter.search.trim()}%`;
-    conditions.push(
-      or(like(recipes.title, pattern), like(recipes.description, pattern)),
-    );
+    conditions.push(like(recipes.title, pattern));
   }
 
   if (filter.cuisines && filter.cuisines.length > 0) {
