@@ -3,6 +3,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
+import { lookupFallbackNutriments } from "../data/nutritionFallback.js";
 import {
   convertToGrams,
   searchProductNutriments,
@@ -61,7 +62,16 @@ export async function nutritionRoutes(server: FastifyInstance): Promise<void> {
       // Sequentiell, um die OFF-API nicht zu überrennen.
       // Bei sehr vielen Zutaten könnte man hier Promise.all mit Throttling nehmen.
       for (const ing of ingredients) {
-        const nutriments = await searchProductNutriments(ing.name);
+        // Lookup-Reihenfolge:
+        // 1. Bundled-Tabelle (kuratierte Nährwerte für ~150 häufige rohe
+        //    Zutaten). Liefert verlässliche Werte ohne API-Call und ohne
+        //    Risiko, dass OFF z.B. "Apfelsaft" zurück gibt, wenn der User
+        //    "Apfel" meinte.
+        // 2. OFF-Suche als Fallback für seltenere/branded Items.
+        let nutriments = lookupFallbackNutriments(ing.name);
+        if (!nutriments) {
+          nutriments = await searchProductNutriments(ing.name);
+        }
         if (!nutriments) {
           missing.push(ing.name);
           continue;
