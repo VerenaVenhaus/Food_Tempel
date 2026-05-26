@@ -268,39 +268,93 @@ export const NUTRITION_FALLBACK: Record<string, IngredientNutriments> = {
 // "Amaranth" tippt (mit h), greifen wir auf "Amarant" zurück.
 const NUTRITION_ALIASES: Record<string, string> = {
   Amaranth: "Amarant",
+  Amaranthsamen: "Amarant",
+  Amarantsamen: "Amarant",
   "rote Bete": "Rote Bete",
   rotebete: "Rote Bete",
+  Rotebete: "Rote Bete",
   Ananaa: "Ananas",
   Knoblauch: "Knoblauchzehe",
   Apfelmus: "Apfel",
   Eier: "Ei",
   Eiklar: "Eiweiß",
   Knobi: "Knoblauchzehe",
+  Olive: "Olivenöl",
+  Vollkornbrot: "Brot",
+  Weißbrot: "Brot",
+  Schwarzbrot: "Brot",
+  Roggenbrot: "Brot",
+  Vollkornnudeln: "Spaghetti",
+  Reisnudeln: "Spaghetti",
+  Putenhack: "Hackfleisch gemischt",
+  Geflügelhack: "Hackfleisch gemischt",
+  Rindfleisch: "Rindersteak",
+  Schweinefleisch: "Schweinefilet",
+  Hähnchen: "Hähnchenbrust",
+  Pute: "Putenbrust",
+  Sojamilch: "Milch",
+  Hafermilch: "Milch",
+  Mandelmilch: "Milch",
 };
 
-/**
- * Sucht passende Nährwerte für einen Zutat-Namen. Case-insensitive,
- * Trim-tolerant. Berücksichtigt Aliasse für gängige Schreibvarianten.
- *
- * Wichtig: hier wird KEIN Fuzzy-Matching gemacht — "Apfelsaft" ≠ "Apfel".
- * Sonst landen wir wieder bei falschen Werten.
- */
-export function lookupFallbackNutriments(
-  name: string,
-): IngredientNutriments | null {
+// Adjektive / Zustandsbeschreibungen, die wir aus dem Namen rausstreichen,
+// um den eigentlichen Lebensmittel-Begriff zu finden.
+// "Gepuffter Amaranth" → strip "Gepuffter" → "Amaranth" → Alias → Amarant.
+// "Frische Karotte" → "Karotte". Usw.
+const STRIP_WORDS = new Set([
+  // Verarbeitung
+  "gepufft", "gepuffter", "gepuffte", "gepufftes",
+  "puffed", "popped",
+  "gemahlen", "gemahlene", "gemahlener", "gemahlenes",
+  "geraspelt", "geraspelte", "geraspelter",
+  "gerieben", "geriebene", "geriebener", "geriebenes",
+  "gehackt", "gehackte", "gehackter", "gehacktes",
+  "gewürfelt", "gewürfelte", "gewürfelter",
+  "gehobelt", "gehobelte", "gehobelter",
+  "gekocht", "gekochte", "gekochter", "gekochtes",
+  "gebraten", "gebratene", "gebratener", "gebratenes",
+  "geröstet", "geröstete", "gerösteter", "geröstetes",
+  "getrocknet", "getrocknete", "getrockneter", "getrocknetes",
+  "geräuchert", "geräucherte", "geräucherter",
+  "tiefgekühlt", "tiefgefroren", "gefroren",
+  "frisch", "frische", "frischer", "frisches",
+  "roh", "rohe", "roher", "rohes",
+  // Stil / Herkunft
+  "bio", "bio-", "biologisch",
+  "fair", "fairtrade",
+  "vegan", "vegane",
+  "ungesüßt", "ungesüßte", "ungesüßter",
+  "gesüßt", "gesüßte",
+  "gesalzen", "ungesalzen",
+  // Größe / Form
+  "fein", "feine", "feiner", "feines",
+  "grob", "grobe", "grober", "grobes",
+  "klein", "kleine", "kleiner", "kleines",
+  "groß", "große", "großer", "großes",
+  "ganz", "ganze", "ganzer", "ganzes",
+  "halb", "halbe", "halber", "halbes",
+  // Farbe (oft kosmetisch)
+  "rot", "rote", "roter", "rotes",
+  "grün", "grüne", "grüner", "grünes",
+  "weiß", "weiße", "weißer", "weißes",
+  "schwarz", "schwarze", "schwarzer", "schwarzes",
+  "gelb", "gelbe", "gelber", "gelbes",
+]);
+
+function tryLookup(name: string): IngredientNutriments | null {
   const trimmed = name.trim();
   if (!trimmed) return null;
 
-  // 1. Direkter Treffer
+  // 1. Direkter Schlüssel
   if (NUTRITION_FALLBACK[trimmed]) return NUTRITION_FALLBACK[trimmed];
 
   // 2. Alias-Treffer
-  const aliasTarget = NUTRITION_ALIASES[trimmed];
-  if (aliasTarget && NUTRITION_FALLBACK[aliasTarget]) {
-    return NUTRITION_FALLBACK[aliasTarget];
+  if (NUTRITION_ALIASES[trimmed]) {
+    const target = NUTRITION_ALIASES[trimmed];
+    if (NUTRITION_FALLBACK[target]) return NUTRITION_FALLBACK[target];
   }
 
-  // 3. Case-insensitiv über alle Keys
+  // 3. Case-insensitiv
   const lower = trimmed.toLowerCase();
   for (const key of Object.keys(NUTRITION_FALLBACK)) {
     if (key.toLowerCase() === lower) return NUTRITION_FALLBACK[key];
@@ -310,6 +364,59 @@ export function lookupFallbackNutriments(
       const target = NUTRITION_ALIASES[aliasKey];
       if (NUTRITION_FALLBACK[target]) return NUTRITION_FALLBACK[target];
     }
+  }
+  return null;
+}
+
+/**
+ * Sucht Nährwerte für einen Zutat-Namen.
+ * Reihenfolge (vom Strengsten zum Permissivsten):
+ *   1. Exakter Treffer (case-insensitive)
+ *   2. Wörter wie "frisch", "gepufft", "bio" werden weggestrichen,
+ *      Rest erneut probiert.
+ *   3. Letztes Wort allein ("Gepuffter Amaranth" → "Amaranth")
+ *   4. Erstes Wort allein ("Amaranth Müsli" → "Amaranth")
+ *
+ * Fuzzy-Matching auf Substring NICHT — sonst gäbe "Apfelsaft" plötzlich
+ * "Apfel"-Werte, was zu deutlich falschen Nährwerten führen würde.
+ */
+export function lookupFallbackNutriments(
+  name: string,
+): IngredientNutriments | null {
+  if (!name?.trim()) return null;
+
+  // 1. Direkt
+  const direct = tryLookup(name);
+  if (direct) return direct;
+
+  // Wörter zerlegen (Leerzeichen, Bindestriche, Kommas)
+  const words = name
+    .trim()
+    .split(/[\s\-,]+/)
+    .filter((w) => w.length > 0);
+
+  // 2. Adjektive abstreifen, erneut versuchen
+  if (words.length > 1) {
+    const filtered = words.filter((w) => !STRIP_WORDS.has(w.toLowerCase()));
+    if (filtered.length > 0 && filtered.length < words.length) {
+      const stripped = filtered.join(" ");
+      const result = tryLookup(stripped);
+      if (result) return result;
+    }
+  }
+
+  // 3. Letztes Wort allein
+  if (words.length > 1) {
+    const lastWord = words[words.length - 1];
+    const result = tryLookup(lastWord);
+    if (result) return result;
+  }
+
+  // 4. Erstes Wort allein
+  if (words.length > 1) {
+    const firstWord = words[0];
+    const result = tryLookup(firstWord);
+    if (result) return result;
   }
 
   return null;
