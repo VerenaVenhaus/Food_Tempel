@@ -4,9 +4,11 @@ import { useFocusEffect } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useCallback, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { RecipeCard } from "../components/RecipeCard";
 import { SearchBar } from "../components/SearchBar";
+import { COUNTRIES } from "../data/cuisines";
 import { filterRecipes } from "../db/repositories";
 import type { Recipe } from "../db/schema";
 import type { RootStackParamList } from "../navigation/types";
@@ -16,19 +18,37 @@ import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
 
 export function HomeScreen({ navigation }: Props) {
-  const { filter, setFilter, resetFilter, activeCount, refreshKey } = useFilter();
+  const { filter, setFilter, resetFilter, setKind, activeCount, refreshKey } =
+    useFilter();
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [loading, setLoading] = useState(true);
+  // Bottom safe-area-Inset: auf iOS Geräten mit Home-Indikator-Linie, damit
+  // die Tab-Bar nicht von der System-UI überlappt wird.
+  const insets = useSafeAreaInsets();
 
   // Bei jedem Fokus + Filter/Suche-Änderung neu laden
   useFocusEffect(
     useCallback(() => {
       let active = true;
       (async () => {
+        // Effektive Länder-Liste fürs Filtern:
+        //   1. Explizite Länder gewählt → nimm die
+        //   2. Sonst: nur Kontinente gewählt → alle Länder der Kontinente
+        //   3. Sonst: kein Cuisine-Filter
+        let effectiveCuisines: string[] | undefined;
+        if (filter.cuisines.length > 0) {
+          effectiveCuisines = filter.cuisines;
+        } else if (filter.continents.length > 0) {
+          effectiveCuisines = COUNTRIES.filter((c) =>
+            filter.continents.includes(c.continent),
+          ).map((c) => c.value);
+        }
+
         const list = await filterRecipes({
+          kind: filter.kind,
           search: filter.search,
-          mealTypes: filter.mealType ? [filter.mealType] : undefined,
-          cuisines: filter.cuisines.length > 0 ? filter.cuisines : undefined,
+          mealTypes: filter.mealTypes.length > 0 ? filter.mealTypes : undefined,
+          cuisines: effectiveCuisines,
           tagIds: filter.tagIds.length > 0 ? filter.tagIds : undefined,
           ingredientNames:
             filter.ingredientNames.length > 0 ? filter.ingredientNames : undefined,
@@ -74,12 +94,18 @@ export function HomeScreen({ navigation }: Props) {
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>{activeCount > 0 ? "🔍" : "📖"}</Text>
           <Text style={styles.emptyTitle}>
-            {activeCount > 0 ? "Keine Treffer" : "Noch keine Rezepte"}
+            {activeCount > 0
+              ? "Keine Treffer"
+              : filter.kind === "drink"
+                ? "Noch keine Getränke"
+                : "Noch keine Rezepte"}
           </Text>
           <Text style={styles.emptyHint}>
             {activeCount > 0
               ? "Lockere deine Filter oder lege ein passendes Rezept an."
-              : 'Tippe rechts oben auf "+", um dein erstes Rezept anzulegen.'}
+              : filter.kind === "drink"
+                ? 'Tippe rechts oben auf "+", um dein erstes Getränk anzulegen.'
+                : 'Tippe rechts oben auf "+", um dein erstes Rezept anzulegen.'}
           </Text>
         </View>
       ) : (
@@ -106,7 +132,50 @@ export function HomeScreen({ navigation }: Props) {
           )}
         />
       )}
+
+      {/* Bottom-Tab-Bar — Doppelschicht:
+          - Außen: weißer "Safe-Area-Sockel" → übergeht visuell sauber in die
+            Android-System-Nav-Bar darunter.
+          - Innen: die eigentliche Tab-Bar mit dem Beige-Grün der Navbar. */}
+      <View style={[styles.tabBarSafe, { paddingBottom: insets.bottom }]}>
+        <View style={styles.tabBar}>
+          <Tab
+            label="🍽️ Essen"
+            active={filter.kind === "food"}
+            onPress={() => setKind("food")}
+          />
+          <Tab
+            label="🥤 Getränke"
+            active={filter.kind === "drink"}
+            onPress={() => setKind("drink")}
+          />
+        </View>
+      </View>
     </View>
+  );
+}
+
+// Einzelner Tab. Aktiv-Indikator ist ein absolut positionierter Strich am
+// unteren Rand — überlappt die Trennlinie der Tab-Bar.
+function Tab({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.tab, pressed && styles.tabPressed]}
+    >
+      <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
+        {label}
+      </Text>
+      {active && <View style={styles.tabIndicator} />}
+    </Pressable>
   );
 }
 
@@ -167,5 +236,55 @@ const styles = StyleSheet.create({
     color: colors.freshDark,
     fontWeight: fontWeight.semibold,
     fontSize: fontSize.sm,
+  },
+  // Äußere Hülle der Tab-Bar — füllt den Safe-Area-Bereich unter den Tabs
+  // in Weiß, sodass es einen sauberen Übergang zur (weißen/hellen) Android-
+  // System-Nav-Bar darunter gibt.
+  tabBarSafe: {
+    backgroundColor: "#fff",
+  },
+  // Die eigentliche Tab-Bar (visible row): Grün wie die Navbar.
+  tabBar: {
+    flexDirection: "row",
+    backgroundColor: colors.navbarBg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    // Leichte Umrandung in Grau — gibt jedem Reiter eine eigene Zelle.
+    // Oben kommt die border-top der Tab-Bar hinzu, deshalb hier nur
+    // bottom + left + right.
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
+    borderRightWidth: 1,
+    borderRightColor: colors.border,
+  },
+  tabPressed: {
+    opacity: 0.6,
+  },
+  tabLabel: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
+    color: colors.textSecondary,
+  },
+  tabLabelActive: {
+    color: colors.primary,
+    fontWeight: fontWeight.semibold,
+  },
+  // Aktiv-Indikator: 3px-Strich am oberen Rand. -1px Top → liegt direkt
+  // auf der grauen Trennlinie der Tab-Bar, "zeigt" damit hoch zum Inhalt.
+  tabIndicator: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: -1,
+    height: 3,
+    backgroundColor: colors.primary,
   },
 });

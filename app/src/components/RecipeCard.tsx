@@ -4,24 +4,19 @@
 
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { DRINK_LABEL_BY_VALUE } from "../data/drinkTypes";
+import { formatMealTypes } from "../data/mealTypes";
 import { colors, fontSize, fontWeight, radius, shadow, spacing } from "../theme";
 
 type Props = {
   title: string;
   imageUri?: string | null;
+  // Komma-separierte Liste aus der DB ("breakfast,snack"). formatMealTypes
+  // bringt's für die Anzeige in lesbare Form ("Frühstück, Snack").
   mealType?: string | null;
   prepTimeMinutes?: number | null;
   cookTimeMinutes?: number | null;
   onPress: () => void;
-};
-
-// Deutsche Labels für die englischen Enum-Werte aus der DB
-const MEAL_LABELS: Record<string, string> = {
-  breakfast: "Frühstück",
-  lunch: "Mittag",
-  dinner: "Abend",
-  snack: "Snack",
-  dessert: "Dessert",
 };
 
 export function RecipeCard({
@@ -57,8 +52,8 @@ export function RecipeCard({
         <View style={styles.metaRow}>
           {mealType && (
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                {MEAL_LABELS[mealType] ?? mealType}
+              <Text style={styles.badgeText} numberOfLines={1}>
+                {formatMealTypes(mealType, DRINK_LABEL_BY_VALUE)}
               </Text>
             </View>
           )}

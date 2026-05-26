@@ -8,7 +8,7 @@
 // Beim Backend-Aufruf brauchen wir die aktuellen Zutaten und Portionen aus
 // dem Parent — werden als Props reingegeben.
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -48,10 +48,79 @@ type Props = {
   // Vom Form übergeben, damit die Berechnung weiß was zu rechnen ist.
   ingredients: Array<{ name: string; quantity?: number | null; unit?: string | null }>;
   servings: number;
+  // Beim Bearbeiten eines existierenden Rezepts: für wie viele Portionen
+  // sind die geladenen Nährwerte berechnet? Wir merken uns das und können
+  // dann beim Portionen-Ändern korrekt rescalen. Null = Werte unbekannt /
+  // neu angelegtes Rezept (Auto-Skalierung greift dann erst nach "Aus
+  // Zutaten berechnen").
+  initialComputedForServings?: number | null;
 };
 
-export function NutritionSection({ value, onChange, ingredients, servings }: Props) {
+export function NutritionSection({
+  value,
+  onChange,
+  ingredients,
+  servings,
+  initialComputedForServings,
+}: Props) {
   const [calculating, setCalculating] = useState(false);
+
+  // Für welche Portionsanzahl wurden die aktuellen Werte berechnet?
+  // Wir merken's uns als Ref, damit wir beim Portionen-Ändern automatisch
+  // umrechnen können (ohne erneut die API zu rufen). Werte sind pro Portion,
+  // also reicht reine Mathematik: pp_neu = pp_alt × alteServings / neueServings.
+  const computedForServingsRef = useRef<number | null>(null);
+
+  // Beim Bearbeiten eines existierenden Rezepts kommen Nährwerte und
+  // Portionen über Props rein. Wir initialisieren die Ref einmalig, sobald
+  // der Parent uns einen Wert mitteilt. Manuelle Edits danach setzen die
+  // Ref auf null (siehe setField) — auto-skalierung wird dann deaktiviert,
+  // bis erneut "Aus Zutaten berechnen" geklickt wird.
+  useEffect(() => {
+    if (
+      initialComputedForServings != null &&
+      initialComputedForServings > 0 &&
+      computedForServingsRef.current == null
+    ) {
+      computedForServingsRef.current = initialComputedForServings;
+    }
+  }, [initialComputedForServings]);
+  // Damit wir wissen, ob sich `servings` seit dem letzten Render geändert hat.
+  const prevServingsRef = useRef<number>(servings);
+  // Aktuelle value-Snapshot in einer Ref, damit der servings-Effect kein
+  // value im Dependency-Array braucht (sonst Endlosschleife).
+  const valueRef = useRef(value);
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+
+  // Wenn sich die Portionen ändern UND wir Werte für eine andere Portionsanzahl
+  // berechnet hatten, skalieren wir die angezeigten Nährwerte automatisch.
+  useEffect(() => {
+    const prev = prevServingsRef.current;
+    prevServingsRef.current = servings;
+
+    if (computedForServingsRef.current == null) return;
+    if (servings <= 0 || prev <= 0) return;
+    if (servings === computedForServingsRef.current) return;
+
+    const factor = computedForServingsRef.current / servings;
+    const v = valueRef.current;
+    const scaled: NutritionDraft = {
+      calories: scaleString(v.calories, factor),
+      proteinG: scaleString(v.proteinG, factor),
+      carbsG: scaleString(v.carbsG, factor),
+      fatG: scaleString(v.fatG, factor),
+      fiberG: scaleString(v.fiberG, factor),
+      sugarG: scaleString(v.sugarG, factor),
+    };
+    onChange(scaled);
+    computedForServingsRef.current = servings;
+    // `onChange` ist über Props rein — wenn der Parent es stabil hält (useCallback
+    // oder Setter aus useState), löst es keine Re-Renders aus. Wir lassen die
+    // Lint-Warnung in Kauf, weil das Dependency hier semantisch falsch wäre.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [servings]);
 
   async function autoCalculate() {
     const valid = ingredients.filter((i) => i.name.trim().length > 0);
@@ -79,6 +148,9 @@ export function NutritionSection({ value, onChange, ingredients, servings }: Pro
       fiberG: String(res.data.fiberG),
       sugarG: String(res.data.sugarG),
     });
+    // Merken, für wie viele Portionen das hier gerade berechnet wurde.
+    // Wenn der User die Portionen später ändert, skalieren wir automatisch.
+    computedForServingsRef.current = servings || 1;
 
     if (res.data.missingIngredients.length > 0) {
       Alert.alert(
@@ -91,6 +163,10 @@ export function NutritionSection({ value, onChange, ingredients, servings }: Pro
   function setField(key: keyof NutritionDraft, text: string) {
     // Nur Ziffern, Komma und Punkt zulassen
     const sanitized = text.replace(/[^0-9.,]/g, "");
+    // Manuelle Eingabe → ab jetzt nicht mehr auto-skalieren, wenn die
+    // Portionen geändert werden. Wer von Hand tippt, will seinen Wert behalten.
+    // Nach dem nächsten "Aus Zutaten berechnen" wird das wieder aktiviert.
+    computedForServingsRef.current = null;
     onChange({ ...value, [key]: sanitized });
   }
 
@@ -129,6 +205,19 @@ export function NutritionSection({ value, onChange, ingredients, servings }: Pro
       </View>
     </View>
   );
+}
+
+// Skaliert einen Zahl-String mit einem Faktor. Leere Strings + ungültige
+// Eingaben werden unverändert zurückgegeben. Komma wird als Dezimaltrenner
+// akzeptiert ("12,5" → 12.5).
+function scaleString(s: string, factor: number): string {
+  if (!s || s.trim() === "") return s;
+  const n = parseFloat(s.replace(",", "."));
+  if (Number.isNaN(n)) return s;
+  const scaled = n * factor;
+  // Auf 1 Nachkommastelle runden — 200 bleibt 200, 200.45 wird 200.5
+  const rounded = Math.round(scaled * 10) / 10;
+  return String(rounded);
 }
 
 function NumField({

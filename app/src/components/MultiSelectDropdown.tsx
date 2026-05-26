@@ -56,14 +56,25 @@ export function MultiSelectDropdown({
     return options.filter((o) => o.label.toLowerCase().includes(q));
   }, [options, query]);
 
-  // Was im Feld stehen soll, wenn das Modal geschlossen ist. Bei vielen
-  // Treffern kürzen wir mit "+N", sonst wird das Feld zu breit.
+  // Auswahl, die zu *unseren* Optionen gehört. Wichtig, wenn `value` über
+  // mehrere Dropdowns geteilt wird (z.B. ein gemeinsames tagIds-Array für
+  // mehrere Tag-Kategorien). Wir zählen und zeigen nur, was uns "gehört".
+  const selectedInOptions = useMemo(
+    () => options.filter((o) => value.includes(o.value)),
+    [options, value],
+  );
+
+  // Was im Feld stehen soll, wenn das Modal geschlossen ist. Wir nehmen die
+  // Labels (nicht die Werte) — sonst ständen bei Tags z.B. UUIDs im Feld.
+  // Bei vielen Treffern kürzen wir mit "+N", sonst wird das Feld zu breit.
   const labelText = useMemo(() => {
-    if (value.length === 0) return placeholder;
-    if (value.length === 1) return value[0];
-    if (value.length === 2) return value.join(", ");
-    return `${value[0]}, ${value[1]} +${value.length - 2}`;
-  }, [value, placeholder]);
+    if (selectedInOptions.length === 0) return placeholder;
+    if (selectedInOptions.length === 1) return selectedInOptions[0].label;
+    if (selectedInOptions.length === 2) {
+      return selectedInOptions.map((s) => s.label).join(", ");
+    }
+    return `${selectedInOptions[0].label}, ${selectedInOptions[1].label} +${selectedInOptions.length - 2}`;
+  }, [selectedInOptions, placeholder]);
 
   function toggle(v: string) {
     if (value.includes(v)) {
@@ -71,6 +82,13 @@ export function MultiSelectDropdown({
     } else {
       onChange([...value, v]);
     }
+  }
+
+  // "Alle abwählen" nur für unsere Optionen — fremde Werte (aus anderen
+  // Dropdowns mit demselben value-Array) bleiben unangetastet.
+  function clearScoped() {
+    const ourValues = new Set(options.map((o) => o.value));
+    onChange(value.filter((v) => !ourValues.has(v)));
   }
 
   function closeAndReset() {
@@ -166,17 +184,16 @@ export function MultiSelectDropdown({
           )}
 
           <View style={styles.modalFooter}>
-            {value.length > 0 && (
-              <Pressable
-                onPress={() => onChange([])}
-                style={styles.footerSecondary}
-              >
+            {selectedInOptions.length > 0 && (
+              <Pressable onPress={clearScoped} style={styles.footerSecondary}>
                 <Text style={styles.footerSecondaryText}>Alle abwählen</Text>
               </Pressable>
             )}
             <Pressable onPress={closeAndReset} style={styles.footerPrimary}>
               <Text style={styles.footerPrimaryText}>
-                {value.length > 0 ? `Fertig (${value.length})` : "Fertig"}
+                {selectedInOptions.length > 0
+                  ? `Fertig (${selectedInOptions.length})`
+                  : "Fertig"}
               </Text>
             </Pressable>
           </View>

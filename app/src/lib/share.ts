@@ -1,16 +1,20 @@
-// Rezepte in Form bringen, die geteilt + wieder importiert werden können.
+// Rezepte teilbar machen.
 //
-// Wir teilen IMMER zwei Repräsentationen:
-//   - Text: lesbar in WhatsApp, Mail, Notiz-Apps
-//   - JSON: vollständige Daten zum Re-Import in Food_Tempel
+// Wir verschicken den Rezept-Inhalt als reinen Text — lesbar in WhatsApp,
+// Mail, Signal, SMS usw. Am Ende des Textes hängen wir einen Deep-Link
+// `foodtempel://import?data=...` an, der die gesamten Rezeptdaten kodiert
+// trägt.
 //
-// Die JSON-Datei hat einen "type"-Marker, damit der Empfänger weiß,
-// dass es ein Food_Tempel-Rezept ist.
+// Empfänger MIT Food_Tempel: tippt den Link → App öffnet sich → Rezept
+// kann mit einem Tap importiert werden.
+// Empfänger OHNE Food_Tempel: ignoriert den Link, liest den Text wie eine
+// normale Nachricht.
 
-import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
 import { Share } from "react-native";
 
+import { formatCuisines } from "../data/cuisines";
+import { DRINK_LABEL_BY_VALUE } from "../data/drinkTypes";
+import { formatMealTypes } from "../data/mealTypes";
 import type { Nutrition } from "../db/schema";
 import type { RecipeWithDetails } from "../db/repositories";
 
@@ -29,6 +33,9 @@ export type RecipeShareEnvelope = {
     servings: number | null;
     cuisine: string | null;
     mealType: string | null;
+    // Optional, damit ältere Geräte (ohne kind-Feld) noch lesbar bleiben.
+    // Beim Import wird "food" als Default eingesetzt.
+    kind?: "food" | "drink";
     sourceType: string;
     sourceUrl: string | null;
     ingredients: Array<{
@@ -42,16 +49,9 @@ export type RecipeShareEnvelope = {
   };
 };
 
-const MEAL_LABELS: Record<string, string> = {
-  breakfast: "Frühstück",
-  lunch: "Mittag",
-  dinner: "Abend",
-  snack: "Snack",
-  dessert: "Dessert",
-};
-
 /**
- * Macht eine lesbare Plaintext-Version eines Rezepts.
+ * Macht eine lesbare Plaintext-Version eines Rezepts (ohne Footer/Link —
+ * die werden in shareRecipe drangehängt).
  */
 function recipeToText(r: RecipeWithDetails): string {
   const lines: string[] = [];
@@ -64,7 +64,8 @@ function recipeToText(r: RecipeWithDetails): string {
   if (r.prepTimeMinutes != null) meta.push(`Vorb. ${r.prepTimeMinutes} Min`);
   if (r.cookTimeMinutes != null) meta.push(`Kochen ${r.cookTimeMinutes} Min`);
   if (r.servings != null) meta.push(`${r.servings} Portionen`);
-  if (r.mealType) meta.push(MEAL_LABELS[r.mealType] ?? r.mealType);
+  if (r.mealType) meta.push(formatMealTypes(r.mealType, DRINK_LABEL_BY_VALUE));
+  if (r.cuisine) meta.push(formatCuisines(r.cuisine));
   if (meta.length > 0) lines.push(meta.join(" · "));
 
   // Zutaten
@@ -84,9 +85,21 @@ function recipeToText(r: RecipeWithDetails): string {
   lines.push("Zubereitung:");
   lines.push(r.instructions);
 
-  lines.push("");
-  lines.push("— Erstellt mit Food_Tempel");
   return lines.join("\n");
+}
+
+/**
+ * Baut einen Deep-Link mit den Rezept-Daten URL-encoded im Query-Parameter.
+ * `foodtempel://import?data=%7B%22type%22%3A%22food-tempel-recipe%22%2C…
+ *
+ * Wir bewusst KEIN Base64 — encodeURIComponent ist UTF-8-sicher (Umlaute!)
+ * und reicht für Schemata, die nur URL-safe Chars wollen. Die URL wird
+ * dadurch länger, aber WhatsApp, Mail & Co. handhaben das problemlos.
+ */
+export function buildShareLink(r: RecipeWithDetails): string {
+  const envelope = recipeToEnvelope(r);
+  const data = encodeURIComponent(JSON.stringify(envelope));
+  return `foodtempel://import?data=${data}`;
 }
 
 /**
@@ -106,6 +119,7 @@ function recipeToEnvelope(r: RecipeWithDetails): RecipeShareEnvelope {
       servings: r.servings,
       cuisine: r.cuisine,
       mealType: r.mealType,
+      kind: r.kind,
       sourceType: r.sourceType,
       sourceUrl: r.sourceUrl,
       ingredients: r.ingredients.map((i) => ({
@@ -131,41 +145,21 @@ function recipeToEnvelope(r: RecipeWithDetails): RecipeShareEnvelope {
 }
 
 /**
- * Öffnet das native Share-Sheet mit Text + JSON-Datei.
- *
- * Reihenfolge: Erst Text in die Zwischenablage / share-Text, dann eine
- * separate JSON-Datei. Manche Apps (WhatsApp) nehmen nur eines auf einmal —
- * deshalb zwei Aufrufe.
+ * Öffnet das native Share-Sheet mit dem Rezepttext + dem Deep-Link.
+ * Der Empfänger sieht eine ganz normale Nachricht; wenn er Food_Tempel
+ * installiert hat, kann er den Link tippen und das Rezept landet direkt
+ * in seiner App.
  */
 export async function shareRecipe(recipe: RecipeWithDetails): Promise<void> {
   const text = recipeToText(recipe);
-  const envelope = recipeToEnvelope(recipe);
+  const link = buildShareLink(recipe);
 
-  // 1. JSON-Datei in den Cache schreiben
-  const safeTitle = recipe.title
-    .replace(/[^a-zA-Z0-9_\- ]+/g, "")
-    .replace(/\s+/g, "_")
-    .slice(0, 40);
-  const filename = `${safeTitle || "rezept"}.json`;
-  const path = `${FileSystem.cacheDirectory}${filename}`;
-  await FileSystem.writeAsStringAsync(path, JSON.stringify(envelope, null, 2), {
-    encoding: FileSystem.EncodingType.UTF8,
-  });
+  const message =
+    `${text}\n\n` +
+    `📥 In Food_Tempel öffnen:\n${link}\n\n` +
+    `— Erstellt mit Food_Tempel`;
 
-  // 2. Native Share-Sheet öffnen mit der Datei
-  // expo-sharing kann eine Datei an andere Apps weiterreichen.
-  const sharingAvailable = await Sharing.isAvailableAsync();
-  if (sharingAvailable) {
-    await Sharing.shareAsync(path, {
-      mimeType: "application/json",
-      dialogTitle: `${recipe.title} teilen`,
-      UTI: "public.json",
-    });
-    return;
-  }
-
-  // Fallback: nur den Text via React Native Share
-  await Share.share({ message: text, title: recipe.title });
+  await Share.share({ message, title: recipe.title });
 }
 
 /**

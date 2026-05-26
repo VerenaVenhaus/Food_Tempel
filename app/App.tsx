@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 
+import { DeepLinkHandler } from "./src/components/DeepLinkHandler";
 import { initDatabase } from "./src/db/init";
 import { AppNavigator } from "./src/navigation/AppNavigator";
 import { AuthNavigator } from "./src/navigation/AuthNavigator";
@@ -70,12 +71,23 @@ export default function App() {
         <SafeAreaView style={styles.safeArea} edges={["top"]}>
           <AuthProvider>
             <FilterProvider>
+              <DeepLinkHandler />
               <RootRouter />
             </FilterProvider>
           </AuthProvider>
         </SafeAreaView>
       )}
-      <StatusBar style="dark" backgroundColor={colors.navbarBg} translucent={false} />
+      {/*
+        Status-Bar greift die Navbar-Farbe auf, sodass die Beige-Grüne Linie
+        oben durchgängig vom obersten Pixel bis zum Ende der Navbar reicht.
+        style="dark": Uhrzeit/Akku-Icons in dunkel — gut lesbar auf dem
+        hellen Grün-Beige.
+      */}
+      <StatusBar
+        style="dark"
+        backgroundColor={colors.navbarBg}
+        translucent={false}
+      />
     </SafeAreaProvider>
   );
 }
@@ -124,7 +136,11 @@ function WebNotice() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: colors.background,
+    // Top-Safe-Area-Hintergrund = Navbar-Farbe → das Beige-Grün läuft
+    // durchgängig vom oberen Bildschirmrand bis zum Ende des Headers.
+    // Die Screens darunter überdecken den Bereich mit ihrem eigenen
+    // Hintergrund, also bleibt nur der Safe-Area-Streifen oben grün.
+    backgroundColor: colors.navbarBg,
   },
   loading: {
     flex: 1,

@@ -4,7 +4,9 @@
 export type RootStackParamList = {
   Home: undefined;
   RecipeDetail: { recipeId: string };
-  RecipeForm: { editId?: string } | undefined;
+  // `editId` zum Bearbeiten, `kind` für neu angelegte Rezepte (food/drink).
+  // Beim Bearbeiten wird kind aus der DB gelesen, der Param ignoriert.
+  RecipeForm: { editId?: string; kind?: "food" | "drink" } | undefined;
   Filter: undefined;
 };
 

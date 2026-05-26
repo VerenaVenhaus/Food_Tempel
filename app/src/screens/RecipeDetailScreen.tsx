@@ -12,19 +12,29 @@ import {
   type RecipeWithDetails,
 } from "../db/repositories";
 import { backupSingleRecipeToCloud } from "../lib/cloudSync";
+import { CUISINE_LABEL_BY_VALUE } from "../data/cuisines";
+import { DRINK_LABEL_BY_VALUE } from "../data/drinkTypes";
+import { MEAL_LABEL_BY_VALUE } from "../data/mealTypes";
 import { shareRecipe } from "../lib/share";
 import type { RootStackParamList } from "../navigation/types";
 import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RecipeDetail">;
 
-const MEAL_LABELS: Record<string, string> = {
-  breakfast: "Frühstück",
-  lunch: "Mittag",
-  dinner: "Abend",
-  snack: "Snack",
-  dessert: "Dessert",
-};
+// Komma-separierte DB-Strings ("breakfast,snack") in ein Array lesbarer
+// Labels umwandeln, z.B. ["Frühstück", "Snack"]. Pro Eintrag ein eigener
+// "Pill"-Badge in der Anzeige.
+function labelArray(
+  raw: string | null | undefined,
+  lookup: Record<string, string>,
+): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean)
+    .map((v) => lookup[v] ?? v);
+}
 
 export function RecipeDetailScreen({ navigation, route }: Props) {
   const { recipeId } = route.params;
@@ -167,21 +177,25 @@ export function RecipeDetailScreen({ navigation, route }: Props) {
         )}
       </View>
 
-      {/* Mahlzeit-Typ + Küche */}
-      {(recipe.mealType || recipe.cuisine) && (
+      {/* Mahlzeit-Typ(en) + Küche(n) + Tags. Mehrfachwerte werden als
+          mehrere kleine Pills nebeneinander dargestellt. */}
+      {(recipe.mealType ||
+        recipe.cuisine ||
+        recipe.tags.length > 0) && (
         <View style={styles.tagRow}>
-          {recipe.mealType && (
-            <View style={styles.tag}>
-              <Text style={styles.tagText}>
-                {MEAL_LABELS[recipe.mealType] ?? recipe.mealType}
-              </Text>
+          {labelArray(recipe.mealType, {
+            ...MEAL_LABEL_BY_VALUE,
+            ...DRINK_LABEL_BY_VALUE,
+          }).map((label, i) => (
+            <View key={`meal-${i}`} style={styles.tag}>
+              <Text style={styles.tagText}>{label}</Text>
             </View>
-          )}
-          {recipe.cuisine && (
-            <View style={styles.tag}>
-              <Text style={styles.tagText}>{recipe.cuisine}</Text>
+          ))}
+          {labelArray(recipe.cuisine, CUISINE_LABEL_BY_VALUE).map((label, i) => (
+            <View key={`cuisine-${i}`} style={styles.tag}>
+              <Text style={styles.tagText}>{label}</Text>
             </View>
-          )}
+          ))}
           {recipe.tags.map((t) => (
             <View key={t.id} style={[styles.tag, styles.dietTag]}>
               <Text style={[styles.tagText, styles.dietTagText]}>{t.name}</Text>

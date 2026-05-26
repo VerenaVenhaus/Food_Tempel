@@ -32,6 +32,7 @@ const DDL_STATEMENTS = [
     source_url TEXT,
     cuisine TEXT,
     meal_type TEXT,
+    kind TEXT NOT NULL DEFAULT 'food',
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
     updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
   );`,
@@ -88,24 +89,111 @@ const DDL_STATEMENTS = [
 
 // Standard-Tags, die immer da sein sollen. Damit der Filter-Screen sofort
 // etwas anzuzeigen hat, auch bevor der User selbst Rezepte angelegt hat.
-const SEED_TAGS: Array<{ name: string; category: "diet" | "health" | "allergen" | "occasion" }> = [
-  // Diät-Tags
+//
+// Beim App-Start wird die Liste durchlaufen und jeder Eintrag mit
+// `onConflictDoNothing` eingefügt. Bestehende Tags bleiben unangetastet;
+// nur neue Einträge landen frisch in der Datenbank.
+const SEED_TAGS: Array<{
+  name: string;
+  category: "diet" | "health" | "allergen" | "occasion" | "taste" | "alcohol";
+}> = [
+  // Ernährungsform — 15
   { name: "vegan", category: "diet" },
   { name: "vegetarisch", category: "diet" },
+  { name: "pescetarisch", category: "diet" },
+  { name: "flexitarisch", category: "diet" },
+  { name: "paleo", category: "diet" },
   { name: "low-carb", category: "diet" },
   { name: "keto", category: "diet" },
-  // Gesundheits-Tags
+  { name: "low-fat", category: "diet" },
+  { name: "zuckerfrei", category: "diet" },
+  { name: "proteinreich", category: "diet" },
+  { name: "ballaststoffreich", category: "diet" },
+  { name: "rohkost", category: "diet" },
+  { name: "vollwertkost", category: "diet" },
+  { name: "mediterran", category: "diet" },
+  { name: "clean-eating", category: "diet" },
+
+  // Gesundheit — 12
   { name: "diabetes-geeignet", category: "health" },
   { name: "arthrose-geeignet", category: "health" },
   { name: "herzgesund", category: "health" },
-  // Allergene
+  { name: "nierengesund", category: "health" },
+  { name: "darmgesund", category: "health" },
+  { name: "entzündungshemmend", category: "health" },
+  { name: "antioxidativ", category: "health" },
+  { name: "immunstärkend", category: "health" },
+  { name: "blutdrucksenkend", category: "health" },
+  { name: "cholesterinsenkend", category: "health" },
+  { name: "schwangerschaftsgeeignet", category: "health" },
+  { name: "sportler-geeignet", category: "health" },
+
+  // Allergene — 16 (EU-Top-14 + Histamin + Fructose)
   { name: "glutenfrei", category: "allergen" },
   { name: "laktosefrei", category: "allergen" },
   { name: "nussfrei", category: "allergen" },
-  // Anlass
+  { name: "erdnussfrei", category: "allergen" },
+  { name: "eierfrei", category: "allergen" },
+  { name: "fischfrei", category: "allergen" },
+  { name: "krustentierfrei", category: "allergen" },
+  { name: "weichtierfrei", category: "allergen" },
+  { name: "sojafrei", category: "allergen" },
+  { name: "selleriefrei", category: "allergen" },
+  { name: "senffrei", category: "allergen" },
+  { name: "sesamfrei", category: "allergen" },
+  { name: "schwefelfrei", category: "allergen" },
+  { name: "lupinenfrei", category: "allergen" },
+  { name: "histaminarm", category: "allergen" },
+  { name: "fructosearm", category: "allergen" },
+
+  // Geschmacksrichtung — 18 (neue Kategorie)
+  { name: "süß", category: "taste" },
+  { name: "salzig", category: "taste" },
+  { name: "sauer", category: "taste" },
+  { name: "bitter", category: "taste" },
+  { name: "umami", category: "taste" },
+  { name: "scharf", category: "taste" },
+  { name: "mild", category: "taste" },
+  { name: "würzig", category: "taste" },
+  { name: "nussig", category: "taste" },
+  { name: "fruchtig", category: "taste" },
+  { name: "erfrischend", category: "taste" },
+  { name: "herzhaft", category: "taste" },
+  { name: "cremig", category: "taste" },
+  { name: "knusprig", category: "taste" },
+  { name: "rauchig", category: "taste" },
+  { name: "karamellig", category: "taste" },
+  { name: "buttrig", category: "taste" },
+  { name: "pikant", category: "taste" },
+
+  // Alkohol — 2 (nur im Drink-Modus sichtbar)
+  { name: "alkoholisch", category: "alcohol" },
+  { name: "alkoholfrei", category: "alcohol" },
+
+  // Anlass — 23 (löst Dropdown-Anzeige aus, da >20)
   { name: "schnell", category: "occasion" },
   { name: "meal-prep", category: "occasion" },
   { name: "gäste-tauglich", category: "occasion" },
+  { name: "familienessen", category: "occasion" },
+  { name: "romantisches-dinner", category: "occasion" },
+  { name: "sonntagsbraten", category: "occasion" },
+  { name: "picknick", category: "occasion" },
+  { name: "grillen", category: "occasion" },
+  { name: "weihnachten", category: "occasion" },
+  { name: "ostern", category: "occasion" },
+  { name: "geburtstag", category: "occasion" },
+  { name: "silvester", category: "occasion" },
+  { name: "karneval", category: "occasion" },
+  { name: "brunch", category: "occasion" },
+  { name: "buffet", category: "occasion" },
+  { name: "sommer", category: "occasion" },
+  { name: "winter", category: "occasion" },
+  { name: "herbst", category: "occasion" },
+  { name: "frühling", category: "occasion" },
+  { name: "sport-snack", category: "occasion" },
+  { name: "resteverwertung", category: "occasion" },
+  { name: "one-pot", category: "occasion" },
+  { name: "backen", category: "occasion" },
 ];
 
 /**
@@ -119,6 +207,21 @@ export async function initDatabase(): Promise<void> {
   // 1. Schema anlegen (CREATE TABLE IF NOT EXISTS)
   for (const statement of DDL_STATEMENTS) {
     rawDb.execSync(statement);
+  }
+
+  // 1b. Migrationen für Spalten, die nachträglich hinzukamen.
+  // CREATE TABLE IF NOT EXISTS legt KEINE neuen Spalten auf bestehende
+  // Tabellen drauf. Daher hier explizit per ALTER TABLE — wenn die Spalte
+  // schon existiert, wirft SQLite einen "duplicate column"-Fehler, den
+  // wir ignorieren können.
+  for (const alter of [
+    `ALTER TABLE recipes ADD COLUMN kind TEXT NOT NULL DEFAULT 'food'`,
+  ]) {
+    try {
+      rawDb.execSync(alter);
+    } catch {
+      // Spalte schon vorhanden — passt, ignorieren.
+    }
   }
 
   // 2. Standard-Tags einfügen, falls noch nicht da

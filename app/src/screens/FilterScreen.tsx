@@ -3,11 +3,19 @@
 // und schließen das Modal. Die HomeScreen-Liste reagiert dann automatisch.
 
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
 import { SelectChips } from "../components/SelectChips";
+import { COMMON_INGREDIENTS } from "../data/commonIngredients";
+import {
+  CONTINENT_OPTIONS,
+  COUNTRIES,
+  getContinentsForCountries,
+} from "../data/cuisines";
+import { DRINK_TYPE_OPTIONS } from "../data/drinkTypes";
+import { MEAL_TYPE_OPTIONS } from "../data/mealTypes";
 import { listIngredients, listTags } from "../db/repositories";
 import type { Ingredient, Tag } from "../db/schema";
 import type { RootStackParamList } from "../navigation/types";
@@ -16,37 +24,32 @@ import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Filter">;
 
-type MealType = "breakfast" | "lunch" | "dinner" | "snack" | "dessert";
-
-const MEAL_OPTIONS: { value: MealType; label: string }[] = [
-  { value: "breakfast", label: "Frühstück" },
-  { value: "lunch", label: "Mittag" },
-  { value: "dinner", label: "Abend" },
-  { value: "snack", label: "Snack" },
-  { value: "dessert", label: "Dessert" },
-];
-
-const CUISINE_OPTIONS = [
-  { value: "german", label: "Deutschland" },
-  { value: "italian", label: "Italien" },
-  { value: "french", label: "Frankreich" },
-  { value: "spanish", label: "Spanien" },
-  { value: "greek", label: "Griechenland" },
-  { value: "turkish", label: "Türkei" },
-  { value: "chinese", label: "China" },
-  { value: "japanese", label: "Japan" },
-  { value: "indian", label: "Indien" },
-  { value: "mexican", label: "Mexiko" },
-  { value: "american", label: "USA" },
-  { value: "other", label: "Sonstige" },
-];
-
 const TAG_CATEGORY_LABELS: Record<string, string> = {
   diet: "Ernährungsform",
   health: "Gesundheit",
   allergen: "Allergene",
+  taste: "Geschmacksrichtung",
+  alcohol: "Alkohol",
   occasion: "Anlass",
 };
+
+// Reihenfolge der Tag-Sektionen. Categories, die hier nicht stehen, hängen
+// wir hinten dran (für künftige Kategorien aus der DB, an die wir hier
+// noch nicht denken).
+const TAG_CATEGORY_ORDER = [
+  "diet",
+  "health",
+  "allergen",
+  "taste",
+  "alcohol",
+  "occasion",
+];
+
+// Ab wie vielen Tags eine Kategorie als Dropdown statt als Chip-Reihe
+// dargestellt wird. Chips skalieren auf Mobil nicht — irgendwo zwischen
+// 15 und 30 wird die Reihe unübersichtlich. 20 ist ein vernünftiger
+// Mittelweg und macht das Verhalten zwischen den Kategorien konsistent.
+const DROPDOWN_THRESHOLD = 20;
 
 export function FilterScreen({ navigation }: Props) {
   const { filter, setFilter, resetFilter } = useFilter();
@@ -63,6 +66,13 @@ export function FilterScreen({ navigation }: Props) {
       const grouped: Record<string, Tag[]> = {};
       for (const t of tags) {
         (grouped[t.category] ||= []).push(t);
+      }
+      // Innerhalb jeder Kategorie alphabetisch (deutsche Sortierung —
+      // SQLite-Sort wäre case-sensitive ASCII, "Ä" landet sonst hinter "Z").
+      for (const cat of Object.keys(grouped)) {
+        grouped[cat].sort((a, b) =>
+          a.name.localeCompare(b.name, "de", { sensitivity: "base" }),
+        );
       }
       setTagsByCategory(grouped);
       setAllIngredients(ings);
@@ -95,44 +105,123 @@ export function FilterScreen({ navigation }: Props) {
     navigation.goBack();
   }
 
-  const ingredientOptions = allIngredients.map((i) => ({
-    value: i.name, // wir filtern per Name, nicht per ID
-    label: i.name,
-  }));
+  // Filter-Optionen: Union aus bundled-Liste + bereits in der DB erfassten
+  // Zutaten. Dedupliziert (Set) und alphabetisch sortiert.
+  // So zeigt das Filter-Dropdown auch beim ersten App-Start schon ~180 typische
+  // Zutaten, statt leerer Liste.
+  const ingredientOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const i of COMMON_INGREDIENTS) names.add(i.name);
+    for (const i of allIngredients) names.add(i.name);
+    return Array.from(names)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => ({ value: name, label: name }));
+  }, [allIngredients]);
+
+  // Länder-Liste fürs Dropdown: IMMER alle, alphabetisch sortiert.
+  // Der Kontinent ist nur ein "Mit-Tag", der bei Länder-Auswahl automatisch
+  // dazukommt — er schränkt die Länderwahl NICHT mehr ein. Sonst hätte ein
+  // User, der Deutschland gewählt hat (→ Europa auto-getaggt), keinen
+  // Zugriff mehr auf Länder anderer Kontinente.
+  const countryOptions = useMemo(
+    () =>
+      COUNTRIES.map((c) => ({ value: c.value, label: c.label })).sort(
+        (a, b) => a.label.localeCompare(b.label, "de", { sensitivity: "base" }),
+      ),
+    [],
+  );
+
+  // Wenn der User Länder ändert, fügen wir die zugehörigen Kontinente
+  // additiv hinzu (falls nicht schon drin). Bestehende Kontinente
+  // bleiben unangetastet.
+  function setCountries(next: string[]) {
+    setDraft((prev) => {
+      const derived = getContinentsForCountries(next);
+      const merged = Array.from(new Set([...prev.continents, ...derived]));
+      return { ...prev, cuisines: next, continents: merged };
+    });
+  }
+
+  // Wenn der User Kontinente direkt ändert, lassen wir alles andere wie es
+  // war. Insbesondere: bereits gewählte Länder bleiben drin, auch wenn der
+  // User ihren Kontinent abwählt.
+  function setContinents(next: string[]) {
+    setDraft((prev) => ({ ...prev, continents: next }));
+  }
+
+  // Filter-Screen läuft im selben Modus wie die HomeScreen-Liste — der
+  // aktuelle "Essen/Getränke"-Switch entscheidet über die hier angezeigten
+  // Kategorien.
+  const isDrink = filter.kind === "drink";
 
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Section title="Mahlzeit">
+        <Section title={isDrink ? "Getränketyp" : "Mahlzeit"}>
           <SelectChips
-            options={MEAL_OPTIONS}
-            value={draft.mealType as MealType | null}
-            onChange={(v) => setDraft({ ...draft, mealType: v })}
-          />
-        </Section>
-
-        <Section title="Küche / Land">
-          <SelectChips
-            options={CUISINE_OPTIONS}
-            value={draft.cuisines}
-            onChange={(v) => setDraft({ ...draft, cuisines: v })}
+            options={isDrink ? DRINK_TYPE_OPTIONS : MEAL_TYPE_OPTIONS}
+            value={draft.mealTypes}
+            onChange={(v) => setDraft({ ...draft, mealTypes: v })}
             multiSelect
           />
         </Section>
 
-        {Object.entries(tagsByCategory).map(([category, items]) => (
-          <Section
-            key={category}
-            title={TAG_CATEGORY_LABELS[category] ?? category}
-          >
-            <SelectChips
-              options={items.map((t) => ({ value: t.id, label: t.name }))}
-              value={draft.tagIds}
-              onChange={(v) => setDraft({ ...draft, tagIds: v })}
-              multiSelect
+        <Section
+          title="Küche / Land"
+          subtitle="Beim Auswählen eines Lands wird der passende Kontinent automatisch dazu getaggt. Beide Listen sind unabhängig."
+        >
+          <MultiSelectDropdown
+            options={CONTINENT_OPTIONS}
+            value={draft.continents}
+            onChange={setContinents}
+            placeholder="Kontinent auswählen…"
+            modalTitle="Kontinent"
+            searchPlaceholder="Kontinent suchen…"
+          />
+          <View style={styles.cuisineCountryGap}>
+            <MultiSelectDropdown
+              options={countryOptions}
+              value={draft.cuisines}
+              onChange={setCountries}
+              placeholder="Land auswählen…"
+              modalTitle="Land"
+              searchPlaceholder="Land suchen…"
             />
-          </Section>
-        ))}
+          </View>
+        </Section>
+
+        {orderedCategories(tagsByCategory)
+          .filter(([category]) => (category === "alcohol" ? isDrink : true))
+          .map(([category, items]) => {
+          const opts = items.map((t) => ({ value: t.id, label: t.name }));
+          const title = TAG_CATEGORY_LABELS[category] ?? category;
+          // Bei >20 Tags pro Kategorie kippen wir auf das Dropdown — sonst
+          // bleibt die Chip-Reihe, die für überschaubare Mengen schneller
+          // zu bedienen ist (1 Tap statt 2).
+          const useDropdown = items.length > DROPDOWN_THRESHOLD;
+
+          return (
+            <Section key={category} title={title}>
+              {useDropdown ? (
+                <MultiSelectDropdown
+                  options={opts}
+                  value={draft.tagIds}
+                  onChange={(v) => setDraft({ ...draft, tagIds: v })}
+                  placeholder={`${title} auswählen…`}
+                  modalTitle={title}
+                  searchPlaceholder={`${title} suchen…`}
+                />
+              ) : (
+                <SelectChips
+                  options={opts}
+                  value={draft.tagIds}
+                  onChange={(v) => setDraft({ ...draft, tagIds: v })}
+                  multiSelect
+                />
+              )}
+            </Section>
+          );
+        })}
 
         <Section
           title="Zutaten enthalten"
@@ -195,6 +284,31 @@ export function FilterScreen({ navigation }: Props) {
       </View>
     </View>
   );
+}
+
+// Sortiert die Tag-Kategorien nach TAG_CATEGORY_ORDER. Kategorien, die dort
+// nicht aufgeführt sind (z.B. selbst angelegte), erscheinen am Ende
+// alphabetisch.
+function orderedCategories(
+  groups: Record<string, Tag[]>,
+): Array<[string, Tag[]]> {
+  const known: Array<[string, Tag[]]> = [];
+  const unknown: Array<[string, Tag[]]> = [];
+
+  for (const [cat, items] of Object.entries(groups)) {
+    if (TAG_CATEGORY_ORDER.includes(cat)) {
+      known.push([cat, items]);
+    } else {
+      unknown.push([cat, items]);
+    }
+  }
+
+  known.sort(
+    (a, b) =>
+      TAG_CATEGORY_ORDER.indexOf(a[0]) - TAG_CATEGORY_ORDER.indexOf(b[0]),
+  );
+  unknown.sort((a, b) => a[0].localeCompare(b[0]));
+  return [...known, ...unknown];
 }
 
 function Section({
@@ -278,6 +392,9 @@ const styles = StyleSheet.create({
   nutritionRow: {
     flexDirection: "row",
     gap: spacing.sm,
+  },
+  cuisineCountryGap: {
+    marginTop: spacing.xs,
   },
   nutritionInput: {
     flex: 1,

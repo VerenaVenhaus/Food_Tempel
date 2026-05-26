@@ -20,12 +20,27 @@ import { FormField } from "../components/FormField";
 import { ImagePickerField } from "../components/ImagePickerField";
 import { ImportSection } from "../components/ImportSection";
 import { IngredientList, type IngredientDraft } from "../components/IngredientList";
+import { InstructionList } from "../components/InstructionList";
+import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
 import {
   EMPTY_NUTRITION,
   NutritionSection,
   type NutritionDraft,
 } from "../components/NutritionSection";
 import { SelectChips } from "../components/SelectChips";
+import {
+  CONTINENT_OPTIONS,
+  COUNTRIES,
+  getContinentsForCountries,
+  joinCuisineArray,
+  parseCuisineString,
+} from "../data/cuisines";
+import { DRINK_TYPE_OPTIONS } from "../data/drinkTypes";
+import {
+  joinMealTypeArray,
+  MEAL_TYPE_OPTIONS,
+  parseMealTypeString,
+} from "../data/mealTypes";
 import type { ExtractedRecipe } from "../lib/api";
 import {
   createRecipe,
@@ -43,43 +58,24 @@ import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RecipeForm">;
 
-// Optionen für die Auswahl-Chips
-type MealType = "breakfast" | "lunch" | "dinner" | "snack" | "dessert";
-
-const MEAL_OPTIONS: { value: MealType; label: string }[] = [
-  { value: "breakfast", label: "Frühstück" },
-  { value: "lunch", label: "Mittag" },
-  { value: "dinner", label: "Abend" },
-  { value: "snack", label: "Snack" },
-  { value: "dessert", label: "Dessert" },
-];
-
 const TAG_CATEGORY_LABELS: Record<string, string> = {
   diet: "Ernährungsform",
   health: "Gesundheit",
   allergen: "Allergene",
+  taste: "Geschmacksrichtung",
+  alcohol: "Alkohol",
   occasion: "Anlass",
 };
-
-// Häufige Küchen — kann später erweitert oder zur Eingabe geöffnet werden.
-const CUISINE_OPTIONS = [
-  { value: "german", label: "Deutschland" },
-  { value: "italian", label: "Italien" },
-  { value: "french", label: "Frankreich" },
-  { value: "spanish", label: "Spanien" },
-  { value: "greek", label: "Griechenland" },
-  { value: "turkish", label: "Türkei" },
-  { value: "chinese", label: "China" },
-  { value: "japanese", label: "Japan" },
-  { value: "indian", label: "Indien" },
-  { value: "mexican", label: "Mexiko" },
-  { value: "american", label: "USA" },
-  { value: "other", label: "Sonstige" },
-];
 
 export function RecipeFormScreen({ navigation, route }: Props) {
   const editId = route.params?.editId;
   const isEdit = !!editId;
+  // Beim Anlegen: Modus aus Route-Param. Beim Bearbeiten: wird unten aus
+  // den geladenen DB-Daten überschrieben.
+  const [kind, setKind] = useState<"food" | "drink">(
+    route.params?.kind ?? "food",
+  );
+  const isDrink = kind === "drink";
 
   // Form-State
   const [title, setTitle] = useState("");
@@ -88,8 +84,14 @@ export function RecipeFormScreen({ navigation, route }: Props) {
   const [prepTime, setPrepTime] = useState("");
   const [cookTime, setCookTime] = useState("");
   const [servings, setServings] = useState("");
-  const [mealType, setMealType] = useState<MealType | null>(null);
-  const [cuisine, setCuisine] = useState<string | null>(null);
+  // Mahlzeiten + Küchen sind jetzt Mehrfachauswahl. In der DB landen sie
+  // als komma-separierte Strings; im Form arbeiten wir mit Arrays.
+  const [mealTypes, setMealTypes] = useState<string[]>([]);
+  const [cuisines, setCuisines] = useState<string[]>([]);
+  // Kontinente sind nur ein UI-Helper, der die Länder-Auswahl scopt — wir
+  // speichern sie nicht in der DB, sondern leiten sie beim Laden aus den
+  // Ländern ab.
+  const [continents, setContinents] = useState<string[]>([]);
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [ingredients, setIngredients] = useState<IngredientDraft[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
@@ -98,6 +100,13 @@ export function RecipeFormScreen({ navigation, route }: Props) {
   const [tagsByCategory, setTagsByCategory] = useState<Record<string, Tag[]>>({});
   const [nutritionDraft, setNutritionDraft] =
     useState<NutritionDraft>(EMPTY_NUTRITION);
+  // Beim Bearbeiten: für wie viele Portionen waren die gespeicherten
+  // Nährwerte berechnet? Wird einmalig nach dem DB-Load gesetzt; ermöglicht
+  // der NutritionSection das automatische Umrechnen, wenn die User die
+  // Portionen nachträglich ändert.
+  const [nutritionInitialServings, setNutritionInitialServings] = useState<
+    number | null
+  >(null);
 
   // UI-State
   const [saving, setSaving] = useState(false);
@@ -107,7 +116,13 @@ export function RecipeFormScreen({ navigation, route }: Props) {
   // Header-Titel + Speichern-Button setzen
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: isEdit ? "Rezept bearbeiten" : "Neues Rezept",
+      title: isEdit
+        ? isDrink
+          ? "Getränk bearbeiten"
+          : "Rezept bearbeiten"
+        : isDrink
+          ? "Neues Getränk"
+          : "Neues Rezept",
       headerRight: () => (
         <Pressable
           onPress={save}
@@ -123,7 +138,7 @@ export function RecipeFormScreen({ navigation, route }: Props) {
     });
     // Wir nehmen save bewusst NICHT in die Deps, sonst flickert der Header.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigation, isEdit, saving, title, instructions, ingredients, selectedTagIds, imageUri, mealType, cuisine, prepTime, cookTime, servings, description]);
+  }, [navigation, isEdit, isDrink, saving, title, instructions, ingredients, selectedTagIds, imageUri, mealTypes, cuisines, prepTime, cookTime, servings, description]);
 
   // Alle Tags zur Auswahl laden — direkt nach Kategorie gruppiert
   useEffect(() => {
@@ -132,6 +147,12 @@ export function RecipeFormScreen({ navigation, route }: Props) {
       const grouped: Record<string, Tag[]> = {};
       for (const t of tags) {
         (grouped[t.category] ||= []).push(t);
+      }
+      // Innerhalb jeder Kategorie alphabetisch (deutsche Sortierung).
+      for (const cat of Object.keys(grouped)) {
+        grouped[cat].sort((a, b) =>
+          a.name.localeCompare(b.name, "de", { sensitivity: "base" }),
+        );
       }
       setTagsByCategory(grouped);
     })();
@@ -143,14 +164,20 @@ export function RecipeFormScreen({ navigation, route }: Props) {
     (async () => {
       const data = await getRecipeById(editId);
       if (!data) return;
+      setKind(data.kind);
       setTitle(data.title);
       setDescription(data.description ?? "");
       setInstructions(data.instructions);
       setPrepTime(data.prepTimeMinutes?.toString() ?? "");
       setCookTime(data.cookTimeMinutes?.toString() ?? "");
       setServings(data.servings?.toString() ?? "");
-      setMealType((data.mealType as MealType) ?? null);
-      setCuisine(data.cuisine ?? null);
+      // Aus den komma-separierten DB-Strings zu Arrays.
+      const loadedMealTypes = parseMealTypeString(data.mealType);
+      setMealTypes(loadedMealTypes);
+      const loadedCuisines = parseCuisineString(data.cuisine);
+      setCuisines(loadedCuisines);
+      // Kontinente aus den geladenen Ländern ableiten.
+      setContinents(getContinentsForCountries(loadedCuisines));
       setImageUri(data.imageUri ?? null);
       setIngredients(
         data.ingredients.map((i) => ({
@@ -171,6 +198,12 @@ export function RecipeFormScreen({ navigation, route }: Props) {
           fiberG: data.nutrition.fiberG != null ? String(data.nutrition.fiberG) : "",
           sugarG: data.nutrition.sugarG != null ? String(data.nutrition.sugarG) : "",
         });
+        // Wenn das Rezept eine Portionsanzahl hat, merken wir sie als
+        // "diese Werte gelten für N Portionen". Auto-Skalierung in der
+        // NutritionSection greift dann beim Ändern der Portionen.
+        if (data.servings != null && data.servings > 0) {
+          setNutritionInitialServings(data.servings);
+        }
       }
     })();
   }, [editId]);
@@ -202,8 +235,11 @@ export function RecipeFormScreen({ navigation, route }: Props) {
       servings: parseIntOrNull(servings),
       imageUri: imageUri ?? undefined,
       sourceType: "manual",
-      cuisine: cuisine ?? undefined,
-      mealType: mealType ?? undefined,
+      // Multi-Werte werden zu komma-separierten Strings serialisiert.
+      // Leere Auswahl → null/undefined, sodass die DB-Spalten NULL bleiben.
+      cuisine: joinCuisineArray(cuisines) ?? undefined,
+      mealType: joinMealTypeArray(mealTypes) ?? undefined,
+      kind,
       ingredients: ingredients
         .filter((i) => i.name.trim().length > 0)
         .map((i) => ({
@@ -226,8 +262,13 @@ export function RecipeFormScreen({ navigation, route }: Props) {
     if (r.prepTimeMinutes != null) setPrepTime(String(r.prepTimeMinutes));
     if (r.cookTimeMinutes != null) setCookTime(String(r.cookTimeMinutes));
     if (r.servings != null) setServings(String(r.servings));
-    if (r.mealType) setMealType(r.mealType);
-    if (r.cuisine) setCuisine(r.cuisine);
+    // KI liefert je einen Wert — wir füllen die Arrays mit genau diesem
+    // Wert und ergänzen ggf. den passenden Kontinent.
+    if (r.mealType) setMealTypes([r.mealType]);
+    if (r.cuisine) {
+      setCuisines([r.cuisine]);
+      setContinents(getContinentsForCountries([r.cuisine]));
+    }
     if (r.imageUri) setImageUri(r.imageUri);
     if (r.ingredients && r.ingredients.length > 0) {
       setIngredients(
@@ -357,12 +398,9 @@ export function RecipeFormScreen({ navigation, route }: Props) {
 
         <IngredientList value={ingredients} onChange={setIngredients} />
 
-        <FormField
-          label="Anleitung"
+        <InstructionList
           value={instructions}
-          onChangeText={setInstructions}
-          placeholder={"1. Schritt eins…\n2. Schritt zwei…"}
-          multiline
+          onChange={setInstructions}
           required
           error={instructionsError}
         />
@@ -373,32 +411,68 @@ export function RecipeFormScreen({ navigation, route }: Props) {
         <Text style={styles.categoriesHeader}>Kategorien</Text>
 
         <CollapsibleSection
-          title="Mahlzeit"
-          badge={mealType ? 1 : 0}
-          defaultOpen={!!mealType}
+          title={isDrink ? "Getränketyp" : "Mahlzeit"}
+          badge={mealTypes.length}
+          defaultOpen={mealTypes.length > 0}
         >
           <SelectChips
-            options={MEAL_OPTIONS}
-            value={mealType}
-            onChange={setMealType}
+            options={isDrink ? DRINK_TYPE_OPTIONS : MEAL_TYPE_OPTIONS}
+            value={mealTypes}
+            onChange={setMealTypes}
+            multiSelect
           />
         </CollapsibleSection>
 
         <CollapsibleSection
           title="Küche / Land"
-          badge={cuisine ? 1 : 0}
-          defaultOpen={!!cuisine}
+          badge={cuisines.length}
+          defaultOpen={cuisines.length > 0 || continents.length > 0}
         >
-          <SelectChips
-            options={CUISINE_OPTIONS}
-            value={cuisine}
-            onChange={setCuisine}
+          <Text style={styles.cuisineHint}>
+            Beim Auswählen eines Lands wird der passende Kontinent automatisch
+            dazu getaggt. Beide Listen sind unabhängig — Länder werden nie vom
+            Kontinent eingeschränkt.
+          </Text>
+          <MultiSelectDropdown
+            options={CONTINENT_OPTIONS}
+            value={continents}
+            onChange={setContinents}
+            placeholder="Kontinent auswählen…"
+            modalTitle="Kontinent"
+            searchPlaceholder="Kontinent suchen…"
           />
+          <View style={styles.cuisineCountryGap}>
+            <MultiSelectDropdown
+              options={COUNTRIES.map((c) => ({
+                value: c.value,
+                label: c.label,
+              })).sort((a, b) =>
+                a.label.localeCompare(b.label, "de", { sensitivity: "base" }),
+              )}
+              value={cuisines}
+              onChange={(next) => {
+                setCuisines(next);
+                // Kontinente der gewählten Länder additiv mergen — nie
+                // vorhandene Kontinente entfernen.
+                const derived = getContinentsForCountries(next);
+                setContinents((prev) =>
+                  Array.from(new Set([...prev, ...derived])),
+                );
+              }}
+              placeholder="Land auswählen…"
+              modalTitle="Land"
+              searchPlaceholder="Land suchen…"
+            />
+          </View>
         </CollapsibleSection>
 
         {/* Eine eigene Sektion pro Tag-Kategorie. Badge = wie viele Tags
-            aus dieser Kategorie schon ausgewählt sind. */}
-        {Object.entries(tagsByCategory).map(([category, items]) => {
+            aus dieser Kategorie schon ausgewählt sind.
+            "alcohol" wird nur im Drink-Modus angezeigt — bei einem Essen-
+            Rezept würde das nicht passen. */}
+        {Object.entries(tagsByCategory)
+          .filter(([category]) => (category === "alcohol" ? isDrink : true))
+          .map(([category, items]) => {
           const idsInCat = items.map((t) => t.id);
           const selectedInCat = selectedTagIds.filter((id) =>
             idsInCat.includes(id),
@@ -442,6 +516,7 @@ export function RecipeFormScreen({ navigation, route }: Props) {
                     unit: i.unit.trim() || null,
                   }))}
                 servings={parseIntOrNull(servings) ?? 1}
+                initialComputedForServings={nutritionInitialServings}
               />
             </CollapsibleSection>
           );
@@ -523,5 +598,13 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginTop: spacing.md,
     marginBottom: -spacing.xs, // optisch näher an die erste Sektion
+  },
+  cuisineHint: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    marginBottom: spacing.xs,
+  },
+  cuisineCountryGap: {
+    marginTop: spacing.xs,
   },
 });

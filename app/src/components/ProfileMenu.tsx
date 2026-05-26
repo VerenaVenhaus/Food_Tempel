@@ -5,7 +5,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -40,10 +40,25 @@ export function ProfileMenu({ visible, onClose }: Props) {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // Welche Aktion läuft gerade? Verhindert Doppelklick + zeigt Spinner.
   const [busy, setBusy] = useState<null | "backup" | "restore" | "import" | "clear">(null);
+  // Interne View des Menüs: "menu" (Default) oder "chooser" (zeigt Essen/
+  // Getränk-Auswahl bevor zum Form-Screen navigiert wird).
+  const [view, setView] = useState<"menu" | "chooser">("menu");
+
+  // Beim Schließen des Modals zurück auf die Menü-Ansicht — sonst landet der
+  // User beim nächsten Öffnen direkt im Chooser, was er nicht erwartet.
+  useEffect(() => {
+    if (!visible) setView("menu");
+  }, [visible]);
 
   function handleCreateRecipe() {
+    // Statt direkt zu navigieren öffnen wir die kleine Auswahl: Essen oder
+    // Getränk? Essen ist visuell vorausgewählt (primary-styled).
+    setView("chooser");
+  }
+
+  function chooseKind(kind: "food" | "drink") {
     onClose();
-    setTimeout(() => navigation.navigate("RecipeForm"), 50);
+    setTimeout(() => navigation.navigate("RecipeForm", { kind }), 50);
   }
 
   async function handleSignOut() {
@@ -173,81 +188,149 @@ export function ProfileMenu({ visible, onClose }: Props) {
         <Pressable style={styles.panelRight} onPress={() => {}}>
           <SafeAreaView edges={["top"]}>
             <View style={styles.header}>
-              <Pressable
-                onPress={onClose}
-                hitSlop={8}
-                accessibilityLabel="Schließen"
-              >
-                <Text style={styles.closeIcon}>✕</Text>
-              </Pressable>
-              <Text style={styles.title}>Menü</Text>
+              {view === "chooser" ? (
+                <Pressable
+                  onPress={() => setView("menu")}
+                  hitSlop={8}
+                  accessibilityLabel="Zurück"
+                >
+                  <Text style={styles.closeIcon}>‹</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  onPress={onClose}
+                  hitSlop={8}
+                  accessibilityLabel="Schließen"
+                >
+                  <Text style={styles.closeIcon}>✕</Text>
+                </Pressable>
+              )}
+              <Text style={styles.title}>
+                {view === "chooser" ? "Was anlegen?" : "Menü"}
+              </Text>
               <View style={styles.headerSpacer} />
             </View>
 
-            <View style={styles.accountBox}>
-              <Text style={styles.accountLabel}>Angemeldet als</Text>
-              <Text style={styles.accountEmail} numberOfLines={1}>
-                {user?.email ?? "(unbekannt)"}
-              </Text>
-            </View>
-
-            {busy ? (
-              <View style={styles.busyRow}>
-                <ActivityIndicator size="small" color={colors.primary} />
-                <Text style={styles.busyText}>
-                  {busy === "backup" && "Sichere zu Cloud…"}
-                  {busy === "restore" && "Lade aus Cloud…"}
-                  {busy === "import" && "Importiere…"}
-                  {busy === "clear" && "Lösche Cloud-Backup…"}
-                </Text>
-              </View>
+            {view === "chooser" ? (
+              <KindChooser onSelect={chooseKind} />
             ) : (
               <>
-                <View style={styles.divider} />
+                <View style={styles.accountBox}>
+                  <Text style={styles.accountLabel}>Angemeldet als</Text>
+                  <Text style={styles.accountEmail} numberOfLines={1}>
+                    {user?.email ?? "(unbekannt)"}
+                  </Text>
+                </View>
 
-                <MenuItem
-                  icon="＋"
-                  label="Rezept erstellen"
-                  onPress={handleCreateRecipe}
-                />
-                <MenuItem
-                  icon="📥"
-                  label="Rezept importieren"
-                  onPress={handleImport}
-                />
+                {busy ? (
+                  <View style={styles.busyRow}>
+                    <ActivityIndicator size="small" color={colors.primary} />
+                    <Text style={styles.busyText}>
+                      {busy === "backup" && "Sichere zu Cloud…"}
+                      {busy === "restore" && "Lade aus Cloud…"}
+                      {busy === "import" && "Importiere…"}
+                      {busy === "clear" && "Lösche Cloud-Backup…"}
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <View style={styles.divider} />
 
-                <View style={styles.divider} />
+                    <MenuItem
+                      icon="＋"
+                      label="Rezept erstellen"
+                      onPress={handleCreateRecipe}
+                    />
+                    <MenuItem
+                      icon="📥"
+                      label="Rezept importieren"
+                      onPress={handleImport}
+                    />
 
-                <MenuItem
-                  icon="☁️"
-                  label="In Cloud sichern"
-                  onPress={handleBackup}
-                />
-                <MenuItem
-                  icon="🔄"
-                  label="Aus Cloud wiederherstellen"
-                  onPress={confirmRestore}
-                />
-                <MenuItem
-                  icon="🧹"
-                  label="Cloud-Backup leeren"
-                  onPress={confirmClearCloud}
-                />
+                    <View style={styles.divider} />
 
-                <View style={styles.divider} />
+                    <MenuItem
+                      icon="☁️"
+                      label="In Cloud sichern"
+                      onPress={handleBackup}
+                    />
+                    <MenuItem
+                      icon="🔄"
+                      label="Aus Cloud wiederherstellen"
+                      onPress={confirmRestore}
+                    />
+                    <MenuItem
+                      icon="🧹"
+                      label="Cloud-Backup leeren"
+                      onPress={confirmClearCloud}
+                    />
 
-                <MenuItem
-                  icon="🚪"
-                  label="Abmelden"
-                  danger
-                  onPress={handleSignOut}
-                />
+                    <View style={styles.divider} />
+
+                    <MenuItem
+                      icon="🚪"
+                      label="Abmelden"
+                      danger
+                      onPress={handleSignOut}
+                    />
+                  </>
+                )}
               </>
             )}
           </SafeAreaView>
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+// Auswahl Essen/Getränk vor dem Anlegen eines neuen Rezepts. Essen ist die
+// primary-Karte → visuell vorausgewählt. Tap auf eine Karte ruft onSelect auf.
+function KindChooser({
+  onSelect,
+}: {
+  onSelect: (kind: "food" | "drink") => void;
+}) {
+  return (
+    <View style={styles.chooserWrap}>
+      <Text style={styles.chooserHint}>
+        Was möchtest du anlegen?
+      </Text>
+      <Pressable
+        onPress={() => onSelect("food")}
+        style={({ pressed }) => [
+          styles.chooserCard,
+          styles.chooserCardPrimary,
+          pressed && styles.chooserCardPressed,
+        ]}
+      >
+        <Text style={styles.chooserIcon}>🍽️</Text>
+        <View style={styles.chooserCardText}>
+          <Text style={[styles.chooserTitle, styles.chooserTitlePrimary]}>
+            Essen
+          </Text>
+          <Text style={[styles.chooserSub, styles.chooserSubPrimary]}>
+            Rezept mit Mahlzeit-Typen, Anlass usw.
+          </Text>
+        </View>
+      </Pressable>
+
+      <Pressable
+        onPress={() => onSelect("drink")}
+        style={({ pressed }) => [
+          styles.chooserCard,
+          pressed && styles.chooserCardPressed,
+        ]}
+      >
+        <Text style={styles.chooserIcon}>🥤</Text>
+        <View style={styles.chooserCardText}>
+          <Text style={styles.chooserTitle}>Getränk</Text>
+          <Text style={styles.chooserSub}>
+            Mit Getränketyp und Alkohol-Tags
+          </Text>
+        </View>
+      </Pressable>
+    </View>
   );
 }
 
@@ -377,5 +460,56 @@ const styles = StyleSheet.create({
   busyText: {
     color: colors.textSecondary,
     fontSize: fontSize.sm,
+  },
+
+  // Kind-Chooser: zwei große Karten zur Wahl Essen vs. Getränk.
+  chooserWrap: {
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  chooserHint: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  chooserCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+  },
+  // Primary-Variante = "Essen ist vorausgewählt" optisch
+  chooserCardPrimary: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  chooserCardPressed: {
+    opacity: 0.7,
+  },
+  chooserIcon: {
+    fontSize: 36,
+  },
+  chooserCardText: {
+    flex: 1,
+    gap: 2,
+  },
+  chooserTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  chooserTitlePrimary: {
+    color: "#fff",
+  },
+  chooserSub: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  chooserSubPrimary: {
+    color: "rgba(255,255,255,0.85)",
   },
 });

@@ -4,7 +4,7 @@
 // auf — wie das intern funktioniert, wissen sie nicht.
 // Vorteile: Tests, Wiederverwendung, später-Swap auf Cloud-DB einfacher.
 
-import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 
 import { getDb } from "../client";
 import {
@@ -139,6 +139,7 @@ export async function createRecipe(
       sourceUrl: input.sourceUrl,
       cuisine: input.cuisine,
       mealType: input.mealType,
+      kind: input.kind ?? "food",
       createdAt: now,
       updatedAt: now,
     });
@@ -230,6 +231,7 @@ export async function updateRecipeWithDetails(
         sourceUrl: input.sourceUrl,
         cuisine: input.cuisine,
         mealType: input.mealType,
+        kind: input.kind ?? "food",
         updatedAt: now,
       })
       .where(eq(recipes.id, id));
@@ -300,6 +302,8 @@ export async function deleteRecipe(id: string): Promise<void> {
  *   würde fast alles zurückgeben.
  */
 export type RecipeFilter = {
+  // "food" oder "drink" — die Liste wird nach diesem Modus eingeengt.
+  kind?: "food" | "drink";
   search?: string;
   cuisines?: string[];
   mealTypes?: string[];
@@ -314,18 +318,34 @@ export type RecipeFilter = {
 export async function filterRecipes(filter: RecipeFilter): Promise<Recipe[]> {
   const conditions = [];
 
+  if (filter.kind) {
+    conditions.push(eq(recipes.kind, filter.kind));
+  }
+
   if (filter.search && filter.search.trim().length > 0) {
     const pattern = `%${filter.search.trim()}%`;
     conditions.push(like(recipes.title, pattern));
   }
 
+  // cuisine + meal_type sind jetzt komma-separierte TEXT-Spalten.
+  // Für jeden gesuchten Wert prüfen wir mit LIKE, ob er als ganzes Token
+  // in der Spalte steht. Wir umschließen Spalte UND Suchwert mit Kommas
+  // → ",german,italian," LIKE "%,german,%" matcht, "%,germ,%" matcht NICHT.
+  // OR-verknüpft: ein Treffer bei irgendeinem Wert reicht.
   if (filter.cuisines && filter.cuisines.length > 0) {
-    conditions.push(inArray(recipes.cuisine, filter.cuisines));
+    const orParts = filter.cuisines.map(
+      (c) =>
+        sql`',' || coalesce(${recipes.cuisine}, '') || ',' LIKE ${`%,${c},%`}`,
+    );
+    conditions.push(or(...orParts)!);
   }
 
   if (filter.mealTypes && filter.mealTypes.length > 0) {
-    type MealType = NonNullable<Recipe["mealType"]>;
-    conditions.push(inArray(recipes.mealType, filter.mealTypes as MealType[]));
+    const orParts = filter.mealTypes.map(
+      (m) =>
+        sql`',' || coalesce(${recipes.mealType}, '') || ',' LIKE ${`%,${m},%`}`,
+    );
+    conditions.push(or(...orParts)!);
   }
 
   // Tag-AND: pro Tag eine EXISTS-Subquery — Rezept muss für jeden Tag

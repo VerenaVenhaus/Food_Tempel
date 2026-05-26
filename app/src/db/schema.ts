@@ -38,10 +38,20 @@ export const recipes = sqliteTable("recipes", {
     .default("manual"),
   sourceUrl: text("source_url"),
   // Filter-Felder
-  cuisine: text("cuisine"), // "german", "italian", "japanese", ...
-  mealType: text("meal_type", {
-    enum: ["breakfast", "lunch", "dinner", "snack", "dessert"],
-  }),
+  // cuisine + mealType sind beide komma-separierte Mehrfachwerte:
+  //   "italian,german" oder "breakfast,snack"
+  // Backward-compat: alte Single-Values ("german") sind 1-Element-"Listen".
+  cuisine: text("cuisine"),
+  // Im Food-Modus: Mahlzeit-Typen (breakfast, lunch, …).
+  // Im Drink-Modus: Getränke-Typen (cocktail, beer, …). Gleiche Spalte,
+  // unterschiedliche Wertebereiche je nach kind.
+  mealType: text("meal_type"),
+  // "food" oder "drink" — bestimmt, ob die Rezepte unter "Essen" oder
+  // "Getränke" auf der Startseite erscheinen und welche Kategorien das
+  // Formular anzeigt.
+  kind: text("kind", { enum: ["food", "drink"] })
+    .notNull()
+    .default("food"),
   // Unix-Timestamp in Millisekunden. SQLite hat kein natives Datums-Format,
   // INTEGER ist der gängige Weg.
   createdAt: integer("created_at")
@@ -93,7 +103,7 @@ export const tags = sqliteTable("tags", {
   name: text("name").notNull().unique(), // "vegan", "diabetes-friendly", ...
   // Kategorisiert das Tag für UI-Gruppierung im Filter-Menü
   category: text("category", {
-    enum: ["diet", "health", "allergen", "occasion"],
+    enum: ["diet", "health", "allergen", "occasion", "taste", "alcohol"],
   }).notNull(),
 });
 

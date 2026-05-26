@@ -40,7 +40,8 @@ export async function importRecipeFromJson(jsonContent: string): Promise<string>
     cookTimeMinutes: r.cookTimeMinutes ?? undefined,
     servings: r.servings ?? undefined,
     cuisine: r.cuisine ?? undefined,
-    mealType: (r.mealType as CreateRecipeInput["mealType"]) ?? undefined,
+    mealType: r.mealType ?? undefined,
+    kind: r.kind ?? "food",
     sourceType: "manual", // beim Import wird das Original-sourceType verloren
     sourceUrl: r.sourceUrl ?? undefined,
     ingredients: r.ingredients.map((i) => ({
