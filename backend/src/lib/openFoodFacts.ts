@@ -62,32 +62,73 @@ export async function searchProductNutriments(
 }
 
 /**
- * Konvertiert eine Mengenangabe nach Gramm (grob geschätzt).
- * Für genaue Werte müsste man Dichten/Zutaten kennen — wir nehmen Defaults,
- * die für die meisten Zutaten passen.
+ * Konvertiert eine Mengenangabe nach Gramm.
+ *
+ * Liefert `null`, wenn die Einheit komplett unbekannt ist — der Caller soll
+ * dann lieber die Zutat als "nicht berechnet" markieren statt stillschweigend
+ * Müll-Werte einzurechnen. (Früher fielen unbekannte Einheiten auf "behandle
+ * als g" zurück, was z.B. "1 Bund Petersilie" als 1g rechnete.)
+ *
+ * Die Default-Werte sind bewusst grob — Küchen-Maße variieren stark je nach
+ * Zutat. Wer's genau braucht, gibt direkt Gramm ein.
  */
-export function convertToGrams(quantity: number, unit: string | null): number {
+export function convertToGrams(
+  quantity: number,
+  unit: string | null,
+): number | null {
+  // Keine Einheit angegeben → wir nehmen die Zahl als Gramm an. Üblich bei
+  // "200 Mehl" ohne Einheit, der User meinte fast immer Gramm.
   if (!unit) return quantity;
   const u = unit.trim().toLowerCase();
+  if (u === "") return quantity;
 
   // Gewicht
-  if (u === "g" || u === "gramm") return quantity;
-  if (u === "kg") return quantity * 1000;
+  if (u === "g" || u === "gramm" || u === "gr") return quantity;
+  if (u === "kg" || u === "kilogramm") return quantity * 1000;
   if (u === "mg") return quantity / 1000;
 
-  // Volumen — pro 1 ml etwa 1 g (gilt für Wasser, Brühe, etc.; bei Öl/Honig stimmt's nicht ganz)
-  if (u === "ml") return quantity;
+  // Volumen — 1 ml ≈ 1 g (gilt für Wasser, Brühe, Milch; bei Öl/Honig
+  // grob daneben, dafür müsste man Dichten kennen)
+  if (u === "ml" || u === "milliliter") return quantity;
   if (u === "l" || u === "liter") return quantity * 1000;
+  if (u === "cl" || u === "centiliter") return quantity * 10;
 
-  // Küchen-Maße (grobe Defaults)
+  // Klassische Küchen-Löffel & -Maße
   if (u === "tl" || u === "teelöffel") return quantity * 5;
   if (u === "el" || u === "esslöffel") return quantity * 15;
-  if (u === "tasse" || u === "cup") return quantity * 240;
+  if (u === "tasse" || u === "cup" || u === "cups") return quantity * 240;
+  if (u === "becher") return quantity * 200;
   if (u === "prise") return quantity * 0.3;
+  if (u === "messerspitze" || u === "msp") return quantity * 0.5;
+  if (u === "schuss") return quantity * 5;
+  if (u === "spritzer") return quantity * 2;
 
-  // Stück / unbekannt → konservativ schätzen (durchschnittliche Zutat ~50g)
-  if (u === "stück" || u === "stk" || u === "pcs") return quantity * 50;
+  // Stück-basierte Einheiten
+  if (u === "stück" || u === "stk" || u === "pcs" || u === "st")
+    return quantity * 50;
+  if (u === "zehe" || u === "zehen") return quantity * 5; // Knoblauch
+  if (u === "scheibe" || u === "scheiben") return quantity * 25; // Brot/Käse
+  if (u === "blatt" || u === "blätter") return quantity * 5; // Lasagne, Salbei
+  if (u === "zweig" || u === "zweige") return quantity * 1; // Thymian, Rosmarin
+  if (u === "bund") return quantity * 30; // Petersilie & Co.
+  if (u === "stange" || u === "stangen") return quantity * 200; // Lauch, Sellerie
+  if (u === "handvoll") return quantity * 30;
+  if (u === "kopf" || u === "köpfe") return quantity * 250; // Salatkopf
+  if (u === "knolle" || u === "knollen") return quantity * 80;
+  if (u === "kugel" || u === "kugeln") return quantity * 50; // Eiskugel
+  if (u === "schale" || u === "schalen") return quantity * 150;
 
-  // Default: behandle als g (fail-safe)
-  return quantity;
+  // Verpackungseinheiten
+  if (u === "dose" || u === "dosen") return quantity * 200;
+  if (u === "glas" || u === "gläser") return quantity * 200;
+  if (u === "flasche" || u === "flaschen") return quantity * 250;
+  if (u === "tüte" || u === "tüten") return quantity * 250;
+  if (u === "packung" || u === "packungen") return quantity * 500;
+  if (u === "päckchen") return quantity * 8; // Vanillezucker o.ä.
+  if (u === "würfel") return quantity * 42; // Frischhefe-Würfel
+  if (u === "riegel") return quantity * 100;
+  if (u === "tafel") return quantity * 100; // Schokolade
+
+  // Unbekannte Einheit → null, damit der Aufrufer das als "fehlt" flaggen kann
+  return null;
 }

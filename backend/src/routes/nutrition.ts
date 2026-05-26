@@ -66,10 +66,21 @@ export async function nutritionRoutes(server: FastifyInstance): Promise<void> {
           missing.push(ing.name);
           continue;
         }
-        const grams = convertToGrams(ing.quantity ?? 0, ing.unit ?? null);
-        if (grams <= 0) continue;
-        const factor = grams / 100; // Werte sind pro 100g
 
+        // convertToGrams gibt null zurück, wenn die Einheit komplett
+        // unbekannt ist. Lieber als "fehlt" flaggen und in der App
+        // sichtbar machen — statt stillschweigend mit falschen Werten zu
+        // rechnen (z.B. "1 Pulle" als 1g).
+        const grams = convertToGrams(ing.quantity ?? 0, ing.unit ?? null);
+        if (grams == null) {
+          missing.push(
+            `${ing.name} (Einheit „${ing.unit}" unbekannt — bitte z.B. in g umrechnen)`,
+          );
+          continue;
+        }
+        if (grams <= 0) continue;
+
+        const factor = grams / 100; // Werte sind pro 100g
         totalKcal += nutriments.caloriesPer100g * factor;
         totalProtein += nutriments.proteinPer100g * factor;
         totalCarbs += nutriments.carbsPer100g * factor;
