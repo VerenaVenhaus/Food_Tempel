@@ -8,6 +8,7 @@ export type RootStackParamList = {
   // Beim Bearbeiten wird kind aus der DB gelesen, der Param ignoriert.
   RecipeForm: { editId?: string; kind?: "food" | "drink" } | undefined;
   Filter: undefined;
+  About: undefined;
 };
 
 // Stack vor dem Login

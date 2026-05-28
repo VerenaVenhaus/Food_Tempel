@@ -1,22 +1,23 @@
 // Eingabefeld für Zutat-Namen mit Autocomplete-Modal.
 //
+// Quelle der Vorschläge: der gerätelokale Bundeslebensmittelschlüssel (BLS,
+// ~7.140 Lebensmittel). Wählt der User einen Vorschlag, geben wir den Namen
+// UND den BLS-Code zurück — letzterer erlaubt später eine exakte
+// Nährwert-Berechnung (z.B. "Apfel roh" ≠ "Apfelsaft").
+//
 // UX-Idee:
 // - Wirkt im "geschlossenen" Zustand wie ein normales Textfeld
 // - Tap öffnet ein Modal mit Suchfeld
-// - Während getippt wird, zeigen wir SOFORT bundled-Treffer (offline)
-// - Parallel debounced (~300ms) holen wir OFF-Suggest-Treffer dazu
-// - User tippt auf einen Vorschlag → Modal schließt, Name (+ Default-Einheit)
-//   landen im Form
-// - "Eigene Zutat verwenden" als Fallback → übernimmt den freien Suchtext
+// - Während getippt wird, zeigen wir sofort passende BLS-Treffer (offline)
+// - Tap auf einen Treffer → Modal schließt, Name (+ Code) landen im Form
+// - "Eigene Zutat verwenden" als Fallback → freier Text, Code = null
 //
-// Warum Modal statt Inline-Dropdown:
-// Native Inline-Autocompletes sind in React Native hakelig (Tastatur
-// versteckt Vorschläge, z-Index-Probleme in ScrollViews). Ein Modal
-// ist robust und konsistent mit MultiSelectDropdown.
+// Warum Modal statt Inline-Dropdown: native Inline-Autocompletes sind in
+// React Native hakelig (Tastatur verdeckt Vorschläge, z-Index in ScrollViews).
+// Ein Modal ist robust und konsistent mit MultiSelectDropdown.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   FlatList,
   Modal,
   Pressable,
@@ -26,50 +27,33 @@ import {
   View,
 } from "react-native";
 
-import {
-  COMMON_INGREDIENTS,
-  DEFAULT_UNIT_BY_NAME,
-} from "../data/commonIngredients";
-import { suggestIngredientsFromOFF } from "../lib/ingredientSuggest";
+import { searchBlsFoods, type BlsFoodSuggestion } from "../db/repositories";
 import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 
 type Props = {
   value: string;
-  // onChange erhält den neuen Namen UND ggf. eine vorgeschlagene Einheit.
-  // Der Caller entscheidet, ob er die Einheit übernimmt (nur wenn das
-  // Unit-Feld leer ist) — wir greifen ihm hier nicht vor.
-  onChange: (name: string, suggestedUnit?: string) => void;
+  // onChange erhält den gewählten Namen und den BLS-Code (oder null, wenn der
+  // User eine eigene Zutat eingetippt hat).
+  onChange: (name: string, blsCode: string | null) => void;
   placeholder?: string;
-  // Bereits in der lokalen DB erfasste Zutaten — werden in die
-  // Vorschlagsliste mit aufgenommen, damit der User konsistent benannte
-  // Zutaten wiederfindet.
-  knownNames?: string[];
 };
-
-const DEBOUNCE_MS = 300;
-const MAX_BUNDLED_HITS = 12;
 
 export function IngredientNameInput({
   value,
   onChange,
   placeholder = "Zutat",
-  knownNames = [],
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
-  const [offMatches, setOffMatches] = useState<string[]>([]);
-  const [loadingOff, setLoadingOff] = useState(false);
   const inputRef = useRef<TextInput>(null);
 
   // Beim Öffnen des Modals: Suchfeld mit aktuellem Wert vorbelegen und
   // fokussieren, damit der User direkt weitertippen kann.
   function openModal() {
     setQuery(value);
-    setDebouncedQuery(value);
     setOpen(true);
-    // setTimeout, weil Focus VOR dem ersten Render der Modal-Inhalte
-    // nicht greift. 50ms sind genug, fühlt sich nicht verzögert an.
+    // setTimeout, weil Focus VOR dem ersten Render der Modal-Inhalte nicht
+    // greift. 50ms sind genug, fühlt sich nicht verzögert an.
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
@@ -77,90 +61,32 @@ export function IngredientNameInput({
     setOpen(false);
   }
 
-  // Debounce: erst 300ms nach dem letzten Tastendruck wird `debouncedQuery`
-  // aktualisiert. So feuern wir nicht bei jedem Buchstaben einen API-Call.
-  useEffect(() => {
-    const id = setTimeout(() => setDebouncedQuery(query), DEBOUNCE_MS);
-    return () => clearTimeout(id);
-  }, [query]);
+  // BLS-Treffer zum aktuellen Suchtext. searchBlsFoods ist synchron und bei
+  // ~7.140 Zeilen nur wenige Millisekunden — daher direkt im useMemo.
+  const matches = useMemo<BlsFoodSuggestion[]>(
+    () => searchBlsFoods(query),
+    [query],
+  );
 
-  // Live-OFF-Abfrage. AbortController storniert die Anfrage, sobald der
-  // User weitertippt — verhindert race conditions, in denen ein älteres
-  // Ergebnis ein neueres überschreibt.
-  useEffect(() => {
-    if (debouncedQuery.trim().length < 2) {
-      setOffMatches([]);
-      setLoadingOff(false);
-      return;
-    }
-    const controller = new AbortController();
-    setLoadingOff(true);
-    suggestIngredientsFromOFF(debouncedQuery, controller.signal)
-      .then((matches) => {
-        if (!controller.signal.aborted) {
-          setOffMatches(matches);
-          setLoadingOff(false);
-        }
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setOffMatches([]);
-          setLoadingOff(false);
-        }
-      });
-    return () => controller.abort();
-  }, [debouncedQuery]);
-
-  // Bundled + bereits-erfasste DB-Treffer. Sortierung:
-  // 1) exakte Prefix-Treffer ("Apf*" für Suche "apf") nach oben
-  // 2) Substring-Treffer drunter
-  // Dedupe via Set, weil "Apfel" sowohl in bundled als auch in knownNames
-  // stehen kann.
-  const localMatches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (q.length === 0) {
-      // Bei leerem Such-Term: zeig die ersten paar Bundled-Vorschläge,
-      // damit der User auch ohne Tippen direkt was sieht.
-      return COMMON_INGREDIENTS.slice(0, 8).map((i) => i.name);
-    }
-    const all = new Set<string>([
-      ...COMMON_INGREDIENTS.map((i) => i.name),
-      ...knownNames,
-    ]);
-    const prefix: string[] = [];
-    const substring: string[] = [];
-    for (const name of all) {
-      const lower = name.toLowerCase();
-      if (lower.startsWith(q)) prefix.push(name);
-      else if (lower.includes(q)) substring.push(name);
-    }
-    prefix.sort((a, b) => a.localeCompare(b));
-    substring.sort((a, b) => a.localeCompare(b));
-    return [...prefix, ...substring].slice(0, MAX_BUNDLED_HITS);
-  }, [query, knownNames]);
-
-  function pick(name: string) {
-    const suggestedUnit = DEFAULT_UNIT_BY_NAME[name];
-    onChange(name, suggestedUnit);
+  function pick(item: BlsFoodSuggestion) {
+    onChange(item.name, item.code);
     closeModal();
   }
 
   function pickAsTyped() {
     const trimmed = query.trim();
     if (trimmed.length === 0) return;
-    onChange(trimmed, DEFAULT_UNIT_BY_NAME[trimmed]);
+    onChange(trimmed, null);
     closeModal();
   }
 
-  // Können wir den "Eigene Zutat verwenden"-Button anzeigen?
-  // Nur wenn der getippte Text NICHT exakt schon in den Vorschlägen ist.
+  // "Eigene Zutat verwenden" nur zeigen, wenn der getippte Text nicht exakt
+  // schon einem Vorschlag entspricht.
   const showCustomRow = useMemo(() => {
     const q = query.trim();
     if (q.length === 0) return false;
-    if (localMatches.includes(q)) return false;
-    if (offMatches.includes(q)) return false;
-    return true;
-  }, [query, localMatches, offMatches]);
+    return !matches.some((m) => m.name === q);
+  }, [query, matches]);
 
   return (
     <>
@@ -204,8 +130,8 @@ export function IngredientNameInput({
           />
 
           <FlatList
-            data={localMatches}
-            keyExtractor={(item) => `local:${item}`}
+            data={matches}
+            keyExtractor={(item) => item.code}
             keyboardShouldPersistTaps="handled"
             ListHeaderComponent={
               showCustomRow ? (
@@ -226,55 +152,24 @@ export function IngredientNameInput({
             renderItem={({ item }) => (
               <Pressable
                 onPress={() => pick(item)}
-                style={({ pressed }) => [
-                  styles.row,
-                  pressed && styles.rowPressed,
-                ]}
+                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
               >
                 <Text style={styles.rowText} numberOfLines={1}>
-                  {item}
+                  {item.name}
                 </Text>
-                {DEFAULT_UNIT_BY_NAME[item] && (
-                  <Text style={styles.rowUnit}>
-                    {DEFAULT_UNIT_BY_NAME[item]}
-                  </Text>
-                )}
               </Pressable>
             )}
             ListFooterComponent={
-              <View>
-                {/* Weitere Online-Treffer — nahtlos in der Liste, ohne
-                    sichtbaren Trenner. Nur ein dezenter Lade-Indikator,
-                    während im Hintergrund nachgefragt wird. */}
-                {loadingOff && offMatches.length === 0 && (
-                  <View style={styles.loadingRow}>
-                    <ActivityIndicator size="small" color={colors.textMuted} />
-                  </View>
-                )}
-                {offMatches.map((name) => (
-                  <Pressable
-                    key={`off:${name}`}
-                    onPress={() => pick(name)}
-                    style={({ pressed }) => [
-                      styles.row,
-                      pressed && styles.rowPressed,
-                    ]}
-                  >
-                    <Text style={styles.rowText} numberOfLines={1}>
-                      {name}
-                    </Text>
-                  </Pressable>
-                ))}
-                {localMatches.length === 0 &&
-                  offMatches.length === 0 &&
-                  !loadingOff &&
-                  query.trim().length >= 2 && (
-                    <Text style={styles.emptyHint}>
-                      Keine Treffer. Du kannst „{query.trim()}" über den
-                      "+"-Button oben übernehmen.
-                    </Text>
-                  )}
-              </View>
+              matches.length === 0 && query.trim().length >= 2 ? (
+                <Text style={styles.emptyHint}>
+                  Keine BLS-Treffer. Du kannst „{query.trim()}" über den
+                  „+"-Button oben als eigene Zutat übernehmen.
+                </Text>
+              ) : query.trim().length < 2 ? (
+                <Text style={styles.emptyHint}>
+                  Mindestens 2 Buchstaben eingeben…
+                </Text>
+              ) : null
             }
           />
         </View>
@@ -355,10 +250,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     color: colors.textPrimary,
   },
-  rowUnit: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-  },
   customRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -378,10 +269,6 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: fontSize.md,
     color: colors.textPrimary,
-  },
-  loadingRow: {
-    paddingVertical: spacing.md,
-    alignItems: "center",
   },
   emptyHint: {
     padding: spacing.lg,

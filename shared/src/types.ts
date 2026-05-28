@@ -7,12 +7,21 @@
 export type ExtractedRecipe = {
   title?: string;
   description?: string;
+  // 1-Zeilen-Vorschau, von der KI mitgegeben (entweder aus Quelle übernommen
+  // oder aus description abgeleitet).
+  shortDescription?: string;
   instructions?: string;
   prepTimeMinutes?: number;
   cookTimeMinutes?: number;
   servings?: number;
   cuisine?: string;
-  mealType?: "breakfast" | "lunch" | "dinner" | "snack" | "dessert";
+  // Kommagetrennte Liste. Welche Werte gültig sind, hängt davon ab, ob das
+  // Rezept ein Food oder Drink ist — der User wählt das vorab; die App sagt
+  // der KI bei der Extraktion Bescheid, damit sie die richtige Liste nutzt.
+  mealType?: string;
+  // Tag-Namen aus den geseedeten Kategorien (vegan, glutenfrei, scharf, …).
+  // Die App matched sie case-insensitiv auf die DB-Tag-IDs.
+  tags?: string[];
   imageUri?: string;
   sourceUrl?: string;
   ingredients?: Array<{

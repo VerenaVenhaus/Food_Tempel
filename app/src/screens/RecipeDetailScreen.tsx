@@ -21,6 +21,17 @@ import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 
 type Props = NativeStackScreenProps<RootStackParamList, "RecipeDetail">;
 
+// Reihenfolge, in der die Tag-Kategorien als eigene Zeilen erscheinen.
+// Spiegelt die Anordnung im FilterScreen, damit User-Erwartung konsistent bleibt.
+const TAG_CATEGORY_ORDER = [
+  "diet",
+  "health",
+  "allergen",
+  "taste",
+  "alcohol",
+  "occasion",
+] as const;
+
 // Komma-separierte DB-Strings ("breakfast,snack") in ein Array lesbarer
 // Labels umwandeln, z.B. ["Frühstück", "Snack"]. Pro Eintrag ein eigener
 // "Pill"-Badge in der Anzeige.
@@ -177,11 +188,8 @@ export function RecipeDetailScreen({ navigation, route }: Props) {
         )}
       </View>
 
-      {/* Mahlzeit-Typ(en) + Küche(n) + Tags. Mehrfachwerte werden als
-          mehrere kleine Pills nebeneinander dargestellt. */}
-      {(recipe.mealType ||
-        recipe.cuisine ||
-        recipe.tags.length > 0) && (
+      {/* Mahlzeit-Typ(en) — eigene Zeile in primary-Farbe. */}
+      {recipe.mealType && (
         <View style={styles.tagRow}>
           {labelArray(recipe.mealType, {
             ...MEAL_LABEL_BY_VALUE,
@@ -191,18 +199,41 @@ export function RecipeDetailScreen({ navigation, route }: Props) {
               <Text style={styles.tagText}>{label}</Text>
             </View>
           ))}
+        </View>
+      )}
+
+      {/* Küche / Land — eigene Zeile in neutraler Optik (wie "Anlass"),
+          weil Herkunft/Land eher ein "Kontext"-Tag ist und nicht
+          farblich konkurrieren soll. */}
+      {recipe.cuisine && (
+        <View style={styles.tagRow}>
           {labelArray(recipe.cuisine, CUISINE_LABEL_BY_VALUE).map((label, i) => (
-            <View key={`cuisine-${i}`} style={styles.tag}>
-              <Text style={styles.tagText}>{label}</Text>
-            </View>
-          ))}
-          {recipe.tags.map((t) => (
-            <View key={t.id} style={[styles.tag, styles.dietTag]}>
-              <Text style={[styles.tagText, styles.dietTagText]}>{t.name}</Text>
+            <View
+              key={`cuisine-${i}`}
+              style={[styles.tag, styles.tagOccasionBg]}
+            >
+              <Text style={[styles.tagText, styles.tagOccasionFg]}>{label}</Text>
             </View>
           ))}
         </View>
       )}
+
+      {/* Tags nach Kategorie in eigene Zeilen — jede Kategorie hat ihre
+          eigene Farbe. Reihenfolge wie im Filter-Modal. */}
+      {TAG_CATEGORY_ORDER.map((category) => {
+        const tagsOfCategory = recipe.tags.filter((t) => t.category === category);
+        if (tagsOfCategory.length === 0) return null;
+        const cs = TAG_STYLES_BY_CATEGORY[category];
+        return (
+          <View key={category} style={styles.tagRow}>
+            {tagsOfCategory.map((t) => (
+              <View key={t.id} style={[styles.tag, cs.bg]}>
+                <Text style={[styles.tagText, cs.fg]}>{t.name}</Text>
+              </View>
+            ))}
+          </View>
+        );
+      })}
 
       {/* Zutaten */}
       <Text style={styles.sectionTitle}>Zutaten</Text>
@@ -352,9 +383,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: spacing.xs,
-    marginBottom: spacing.md,
+    // Abstand zur nächsten Kategorie-Zeile = gleicher kleiner Abstand wie
+    // der Wrap-Abstand innerhalb einer Kategorie. So sehen alle Lücken
+    // gleich aus, egal ob zwischen Kategorien oder beim Umbruch in einer.
+    marginBottom: spacing.xs,
   },
   tag: {
+    // Default-Hülle: Mahlzeit + Küche bleiben in Karotten-Orange.
     backgroundColor: colors.primaryLight,
     paddingHorizontal: spacing.sm,
     paddingVertical: 4,
@@ -365,12 +400,25 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     fontWeight: fontWeight.medium,
   },
-  dietTag: {
-    backgroundColor: colors.accentLight,
-  },
-  dietTagText: {
-    color: colors.accent,
-  },
+  // --- Kategorie-spezifische Farben für die Tag-Zeilen ---
+  // Ernährungsform → Teal
+  tagDietBg: { backgroundColor: colors.accentLight },
+  tagDietFg: { color: colors.accent },
+  // Gesundheit → Frischgrün
+  tagHealthBg: { backgroundColor: colors.freshLight },
+  tagHealthFg: { color: colors.freshDark },
+  // Allergene → Warnrot (sanftes Lachs als Hintergrund + danger als Text)
+  tagAllergenBg: { backgroundColor: "#fadbd5" },
+  tagAllergenFg: { color: "#721e0d" },
+  // Geschmack → Mintgrün (heller als Frischgrün, leichter Mint-Stich)
+  tagTasteBg: { backgroundColor: "#fcf7c8" },
+  tagTasteFg: { color: "#968a21"  },
+  // Alkohol → warmes Honiggelb
+  tagAlcoholBg: { backgroundColor: "#fbe7c8" },
+  tagAlcoholFg: { color: "#7a4f01" },
+  // Anlass → neutraler Hintergrund
+  tagOccasionBg: { backgroundColor: colors.surface },
+  tagOccasionFg: { color: colors.textSecondary },
   sectionTitle: {
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
@@ -465,3 +513,18 @@ const styles = StyleSheet.create({
     color: colors.danger,
   },
 });
+
+// Mapping Kategorie → (Hintergrund, Schriftfarbe) für die Tag-Pills.
+// Liegt außerhalb von styles.create, damit wir auf die fertigen Style-Objekte
+// zeigen können (TypeScript-mäßig sauberer als Object-Literale inline).
+const TAG_STYLES_BY_CATEGORY: Record<
+  string,
+  { bg: object; fg: object }
+> = {
+  diet: { bg: styles.tagDietBg, fg: styles.tagDietFg },
+  health: { bg: styles.tagHealthBg, fg: styles.tagHealthFg },
+  allergen: { bg: styles.tagAllergenBg, fg: styles.tagAllergenFg },
+  taste: { bg: styles.tagTasteBg, fg: styles.tagTasteFg },
+  alcohol: { bg: styles.tagAlcoholBg, fg: styles.tagAlcoholFg },
+  occasion: { bg: styles.tagOccasionBg, fg: styles.tagOccasionFg },
+};

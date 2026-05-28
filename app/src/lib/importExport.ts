@@ -35,6 +35,7 @@ export async function importRecipeFromJson(jsonContent: string): Promise<string>
   const input: CreateRecipeInput = {
     title: r.title,
     description: r.description ?? undefined,
+    shortDescription: r.shortDescription ?? undefined,
     instructions: r.instructions,
     prepTimeMinutes: r.prepTimeMinutes ?? undefined,
     cookTimeMinutes: r.cookTimeMinutes ?? undefined,
@@ -46,6 +47,7 @@ export async function importRecipeFromJson(jsonContent: string): Promise<string>
     sourceUrl: r.sourceUrl ?? undefined,
     ingredients: r.ingredients.map((i) => ({
       name: i.name,
+      blsCode: i.blsCode ?? null,
       quantity: i.quantity,
       unit: i.unit,
       notes: i.notes,

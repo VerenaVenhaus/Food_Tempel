@@ -27,6 +27,8 @@ export type RecipeShareEnvelope = {
   recipe: {
     title: string;
     description: string | null;
+    // Optional, damit ältere Exports (vor der Kurzbeschreibung) lesbar bleiben.
+    shortDescription?: string | null;
     instructions: string;
     prepTimeMinutes: number | null;
     cookTimeMinutes: number | null;
@@ -43,6 +45,10 @@ export type RecipeShareEnvelope = {
       quantity: number | null;
       unit: string | null;
       notes: string | null;
+      // BLS-Code für exakte Nährwerte. Optional, damit ältere Exports (vor
+      // Phase 4b) noch lesbar bleiben — fehlt der Code, ist die Zutat einfach
+      // "ohne BLS-Verknüpfung" und greift später per Name auf OFF zurück.
+      blsCode?: string | null;
     }>;
     tags: Array<{ name: string; category: string }>;
     nutrition: Omit<Nutrition, "recipeId" | "updatedAt"> | null;
@@ -113,6 +119,7 @@ function recipeToEnvelope(r: RecipeWithDetails): RecipeShareEnvelope {
     recipe: {
       title: r.title,
       description: r.description,
+      shortDescription: r.shortDescription,
       instructions: r.instructions,
       prepTimeMinutes: r.prepTimeMinutes,
       cookTimeMinutes: r.cookTimeMinutes,
@@ -124,6 +131,7 @@ function recipeToEnvelope(r: RecipeWithDetails): RecipeShareEnvelope {
       sourceUrl: r.sourceUrl,
       ingredients: r.ingredients.map((i) => ({
         name: i.name,
+        blsCode: i.blsCode ?? null,
         quantity: i.quantity,
         unit: i.unit,
         notes: i.notes,

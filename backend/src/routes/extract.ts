@@ -17,18 +17,25 @@ import {
 } from "../lib/extractRecipe.js";
 import { requireAuth } from "../middleware/auth.js";
 
-// zod-Schemata für die Request-Bodies
+// zod-Schemata für die Request-Bodies. `kind` wird nicht von der KI bestimmt,
+// sondern vom User vorgegeben — sie nutzt es nur, um das passende mealType-
+// Vokabular (food vs drink) im Prompt zu zeigen. Default = food.
+const kindSchema = z.enum(["food", "drink"]).default("food");
+
 const photoSchema = z.object({
   imageBase64: z.string().min(100),
   mimeType: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
+  kind: kindSchema,
 });
 
 const urlSchema = z.object({
   url: z.string().url(),
+  kind: kindSchema,
 });
 
 const pdfSchema = z.object({
   pdfBase64: z.string().min(100),
+  kind: kindSchema,
 });
 
 export async function extractRoutes(server: FastifyInstance): Promise<void> {
@@ -49,6 +56,7 @@ export async function extractRoutes(server: FastifyInstance): Promise<void> {
       const recipe = await extractFromImage(
         parsed.data.imageBase64,
         parsed.data.mimeType,
+        parsed.data.kind,
       );
       const result: ApiResult<ExtractedRecipe> = { ok: true, data: recipe };
       return result;
@@ -76,15 +84,20 @@ export async function extractRoutes(server: FastifyInstance): Promise<void> {
     }
 
     try {
-      const text = await fetchUrlAsText(parsed.data.url);
+      const { text, imageUri } = await fetchUrlAsText(parsed.data.url);
       if (text.length < 100) {
         return reply
           .code(422)
           .send({ ok: false, error: "Webseite enthielt zu wenig Text." });
       }
-      const recipe = await extractFromText(text);
+      const recipe = await extractFromText(text, parsed.data.kind);
       // sourceUrl als Komfort mitgeben
       recipe.sourceUrl = parsed.data.url;
+      // og:image als Rezept-Bild übernehmen, falls die KI keins erkannt hat.
+      // Die KI sieht ja nur den Text — Bilder kennt sie an dieser Stelle nicht.
+      if (!recipe.imageUri && imageUri) {
+        recipe.imageUri = imageUri;
+      }
       const result: ApiResult<ExtractedRecipe> = { ok: true, data: recipe };
       return result;
     } catch (err) {
@@ -119,7 +132,7 @@ export async function extractRoutes(server: FastifyInstance): Promise<void> {
           .code(422)
           .send({ ok: false, error: "PDF enthielt zu wenig Text." });
       }
-      const recipe = await extractFromText(text);
+      const recipe = await extractFromText(text, parsed.data.kind);
       const result: ApiResult<ExtractedRecipe> = { ok: true, data: recipe };
       return result;
     } catch (err) {

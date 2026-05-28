@@ -2,10 +2,8 @@
 // Jede Zeile = eine Zutat (Menge + Einheit + Name). Reihenfolge wird beim
 // Speichern als sortOrder verwendet.
 
-import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { listIngredients } from "../db/repositories";
 import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 import { IngredientNameInput } from "./IngredientNameInput";
 
@@ -16,6 +14,9 @@ export type IngredientDraft = {
   quantity: string; // String, weil TextInput nur Strings liefert
   unit: string;
   notes: string;
+  // BLS-Code des gewählten Lebensmittels (für exakte Nährwerte), oder null
+  // bei einer frei eingetippten Zutat.
+  blsCode?: string | null;
 };
 
 type Props = {
@@ -24,37 +25,17 @@ type Props = {
 };
 
 export function IngredientList({ value, onChange }: Props) {
-  // Bereits in der DB erfasste Zutat-Namen — als Quelle für den Autocomplete,
-  // damit der User konsistent benannte Zutaten wiederfindet.
-  const [knownNames, setKnownNames] = useState<string[]>([]);
-  useEffect(() => {
-    listIngredients()
-      .then((items) => setKnownNames(items.map((i) => i.name)))
-      .catch(() => {
-        // Wenn die DB hier nicht erreichbar ist, ist das egal — der Autocomplete
-        // hat noch die bundled Liste als Fallback.
-      });
-  }, []);
-
   function update(index: number, patch: Partial<IngredientDraft>) {
     const next = [...value];
     next[index] = { ...next[index], ...patch };
     onChange(next);
   }
 
-  // Name wurde aus dem Autocomplete gewählt. Wenn die Zutat eine Default-
-  // Einheit kennt UND der User noch keine eigene Einheit eingetippt hat,
-  // belegen wir sie vor — sonst lassen wir die bestehende Einheit stehen.
-  function setNameForRow(index: number, name: string, suggestedUnit?: string) {
-    const current = value[index];
+  // Name + zugehöriger BLS-Code kommen zusammen aus dem Autocomplete.
+  // blsCode ist null, wenn der User eine eigene (freie) Zutat eingetippt hat.
+  function setNameForRow(index: number, name: string, blsCode: string | null) {
     const next = [...value];
-    next[index] = {
-      ...current,
-      name,
-      unit: current.unit.trim().length === 0 && suggestedUnit
-        ? suggestedUnit
-        : current.unit,
-    };
+    next[index] = { ...next[index], name, blsCode };
     onChange(next);
   }
 
@@ -63,7 +44,10 @@ export function IngredientList({ value, onChange }: Props) {
   }
 
   function addRow() {
-    onChange([...value, { name: "", quantity: "", unit: "", notes: "" }]);
+    onChange([
+      ...value,
+      { name: "", quantity: "", unit: "", notes: "", blsCode: null },
+    ]);
   }
 
   return (
@@ -95,11 +79,8 @@ export function IngredientList({ value, onChange }: Props) {
             <View style={styles.name}>
               <IngredientNameInput
                 value={ing.name}
-                onChange={(n, suggestedUnit) =>
-                  setNameForRow(idx, n, suggestedUnit)
-                }
-                placeholder="Mehl"
-                knownNames={knownNames}
+                onChange={(n, code) => setNameForRow(idx, n, code)}
+                placeholder="z.B. Apfel"
               />
             </View>
             <Pressable

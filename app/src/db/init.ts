@@ -11,6 +11,7 @@ import { sql } from "drizzle-orm";
 
 import { getDb, getRawDb } from "./client";
 import { tags } from "./schema";
+import { seedBlsFoods } from "./seedBlsFoods";
 import { newId } from "./uuid";
 
 // Die DDL-Statements müssen mit dem Drizzle-Schema in schema.ts übereinstimmen.
@@ -23,6 +24,7 @@ const DDL_STATEMENTS = [
     id TEXT PRIMARY KEY NOT NULL,
     title TEXT NOT NULL,
     description TEXT,
+    short_description TEXT,
     instructions TEXT NOT NULL,
     prep_time_minutes INTEGER,
     cook_time_minutes INTEGER,
@@ -41,6 +43,7 @@ const DDL_STATEMENTS = [
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT NOT NULL UNIQUE,
     default_unit TEXT,
+    bls_code TEXT,
     created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
   );`,
 
@@ -78,6 +81,20 @@ const DDL_STATEMENTS = [
     updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
   );`,
 
+  // BLS-Lebensmittel-Stammdaten (befüllt von seedBlsFoods, nicht hier).
+  `CREATE TABLE IF NOT EXISTS bls_foods (
+    code TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    name_search TEXT NOT NULL,
+    name_compact TEXT NOT NULL,
+    kcal REAL,
+    protein REAL,
+    carbs REAL,
+    fat REAL,
+    fiber REAL,
+    sugar REAL
+  );`,
+
   // Indexe für die Felder, nach denen wir häufig filtern/sortieren werden.
   `CREATE INDEX IF NOT EXISTS idx_recipes_title ON recipes(title);`,
   `CREATE INDEX IF NOT EXISTS idx_recipes_cuisine ON recipes(cuisine);`,
@@ -85,6 +102,18 @@ const DDL_STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_ingredients_name ON ingredients(name);`,
   `CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_recipe ON recipe_ingredients(recipe_id);`,
   `CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_ingredient ON recipe_ingredients(ingredient_id);`,
+  // Suchspalten der BLS-Lebensmittel — für schnelles Autocomplete.
+  `CREATE INDEX IF NOT EXISTS idx_bls_foods_name_search ON bls_foods(name_search);`,
+  `CREATE INDEX IF NOT EXISTS idx_bls_foods_name_compact ON bls_foods(name_compact);`,
+];
+
+// Allergen-Tags der alten Generation — werden bei initDatabase einmalig
+// gelöscht. Schadet nicht, wenn sie schon weg sind (DELETE wirkt dann no-op).
+const OBSOLETE_ALLERGEN_TAG_NAMES = [
+  "glutenfrei", "laktosefrei", "nussfrei", "erdnussfrei", "eierfrei",
+  "fischfrei", "krustentierfrei", "weichtierfrei", "sojafrei",
+  "selleriefrei", "senffrei", "sesamfrei", "schwefelfrei", "lupinenfrei",
+  "histaminarm", "fructosearm",
 ];
 
 // Standard-Tags, die immer da sein sollen. Damit der Filter-Screen sofort
@@ -128,23 +157,26 @@ const SEED_TAGS: Array<{
   { name: "schwangerschaftsgeeignet", category: "health" },
   { name: "sportler-geeignet", category: "health" },
 
-  // Allergene — 16 (EU-Top-14 + Histamin + Fructose)
-  { name: "glutenfrei", category: "allergen" },
-  { name: "laktosefrei", category: "allergen" },
-  { name: "nussfrei", category: "allergen" },
-  { name: "erdnussfrei", category: "allergen" },
-  { name: "eierfrei", category: "allergen" },
-  { name: "fischfrei", category: "allergen" },
-  { name: "krustentierfrei", category: "allergen" },
-  { name: "weichtierfrei", category: "allergen" },
-  { name: "sojafrei", category: "allergen" },
-  { name: "selleriefrei", category: "allergen" },
-  { name: "senffrei", category: "allergen" },
-  { name: "sesamfrei", category: "allergen" },
-  { name: "schwefelfrei", category: "allergen" },
-  { name: "lupinenfrei", category: "allergen" },
-  { name: "histaminarm", category: "allergen" },
-  { name: "fructosearm", category: "allergen" },
+  // Allergene — als POSITIVE Markierung "enthält-X". Beim Anlegen markiert
+  // der User nur, was tatsächlich drin ist (statt mühsam ALLE "frei"-Varianten
+  // anzuklicken). Der Filter dreht das wieder um: Auswahl "glutenfrei"
+  // schließt im Filter Rezepte mit "enthält-gluten" aus (siehe FilterScreen).
+  { name: "enthält-gluten", category: "allergen" },
+  { name: "enthält-laktose", category: "allergen" },
+  { name: "enthält-nüsse", category: "allergen" },
+  { name: "enthält-erdnüsse", category: "allergen" },
+  { name: "enthält-eier", category: "allergen" },
+  { name: "enthält-fisch", category: "allergen" },
+  { name: "enthält-krustentiere", category: "allergen" },
+  { name: "enthält-weichtiere", category: "allergen" },
+  { name: "enthält-soja", category: "allergen" },
+  { name: "enthält-sellerie", category: "allergen" },
+  { name: "enthält-senf", category: "allergen" },
+  { name: "enthält-sesam", category: "allergen" },
+  { name: "enthält-sulfite", category: "allergen" },
+  { name: "enthält-lupinen", category: "allergen" },
+  { name: "enthält-histamin", category: "allergen" },
+  { name: "enthält-fructose", category: "allergen" },
 
   // Geschmacksrichtung — 18 (neue Kategorie)
   { name: "süß", category: "taste" },
@@ -216,12 +248,31 @@ export async function initDatabase(): Promise<void> {
   // wir ignorieren können.
   for (const alter of [
     `ALTER TABLE recipes ADD COLUMN kind TEXT NOT NULL DEFAULT 'food'`,
+    // Kurzbeschreibung — neue Spalte für Phase „Kurzbeschreibung in Karte".
+    `ALTER TABLE recipes ADD COLUMN short_description TEXT`,
+    // BLS-Code je Zutat (Phase 3) — exakte Nährwert-Zuordnung.
+    `ALTER TABLE ingredients ADD COLUMN bls_code TEXT`,
+    // Kompakt-Suchspalte der BLS-Tabelle (Phase 3). DEFAULT '' nötig, weil
+    // SQLite NOT NULL nur mit Default nachträglich erlaubt; der Seed füllt
+    // die Spalte danach mit echten Werten (DELETE + INSERT).
+    `ALTER TABLE bls_foods ADD COLUMN name_compact TEXT NOT NULL DEFAULT ''`,
   ]) {
     try {
       rawDb.execSync(alter);
     } catch {
       // Spalte schon vorhanden — passt, ignorieren.
     }
+  }
+
+  // 1c. Veraltete Allergen-Tags entfernen — alte "frei"-Variante hatte das
+  // Problem, dass der User für jedes Rezept fast alle Tags anklicken musste.
+  // Das neue System markiert nur, was ENTHALTEN ist (siehe SEED_TAGS).
+  // Die Recipe-Tag-Links zu diesen IDs werden via ON DELETE CASCADE
+  // mit-gelöscht — alte Rezepte verlieren also ihre "X-frei"-Tags.
+  for (const oldName of OBSOLETE_ALLERGEN_TAG_NAMES) {
+    rawDb.runSync(`DELETE FROM tags WHERE name = ? AND category = 'allergen'`, [
+      oldName,
+    ]);
   }
 
   // 2. Standard-Tags einfügen, falls noch nicht da
@@ -233,6 +284,9 @@ export async function initDatabase(): Promise<void> {
       .values({ id: newId(), name: seedTag.name, category: seedTag.category })
       .onConflictDoNothing();
   }
+
+  // 3. BLS-Lebensmittel laden (nur beim ersten Start / neuer Datenversion).
+  await seedBlsFoods();
 }
 
 /**

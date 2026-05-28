@@ -56,8 +56,10 @@ function toEnvelope(r: RecipeWithDetails): RecipeShareEnvelope {
       kind: r.kind,
       sourceType: r.sourceType,
       sourceUrl: r.sourceUrl,
+      shortDescription: r.shortDescription,
       ingredients: r.ingredients.map((i) => ({
         name: i.name,
+        blsCode: i.blsCode ?? null,
         quantity: i.quantity,
         unit: i.unit,
         notes: i.notes,
@@ -228,6 +230,7 @@ export async function restoreFromCloud(): Promise<RestoreResult> {
         {
           title: r.title,
           description: r.description ?? undefined,
+          shortDescription: r.shortDescription ?? undefined,
           instructions: r.instructions,
           prepTimeMinutes: r.prepTimeMinutes ?? undefined,
           cookTimeMinutes: r.cookTimeMinutes ?? undefined,
@@ -239,6 +242,7 @@ export async function restoreFromCloud(): Promise<RestoreResult> {
           sourceUrl: r.sourceUrl ?? undefined,
           ingredients: r.ingredients.map((i) => ({
             name: i.name,
+            blsCode: i.blsCode ?? null,
             quantity: i.quantity,
             unit: i.unit,
             notes: i.notes,

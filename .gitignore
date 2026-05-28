@@ -48,3 +48,7 @@ coverage/
 # Build-Outputs
 build/
 out/
+
+# BLS-Quelldaten (große XLSX, nicht committen — nur das erzeugte
+# app/assets/data/bls_foods.json wird versioniert)
+scripts/bls-source/

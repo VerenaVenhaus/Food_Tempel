@@ -8,7 +8,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-
 
 import { MultiSelectDropdown } from "../components/MultiSelectDropdown";
 import { SelectChips } from "../components/SelectChips";
-import { COMMON_INGREDIENTS } from "../data/commonIngredients";
+import { allergenInverseLabel } from "../data/allergenTags";
 import {
   CONTINENT_OPTIONS,
   COUNTRIES,
@@ -105,16 +105,13 @@ export function FilterScreen({ navigation }: Props) {
     navigation.goBack();
   }
 
-  // Filter-Optionen: Union aus bundled-Liste + bereits in der DB erfassten
-  // Zutaten. Dedupliziert (Set) und alphabetisch sortiert.
-  // So zeigt das Filter-Dropdown auch beim ersten App-Start schon ~180 typische
-  // Zutaten, statt leerer Liste.
+  // Filter-Optionen: die in den eigenen Rezepten tatsächlich vorkommenden
+  // Zutaten (aus der DB), alphabetisch sortiert. Nach Zutaten zu filtern, die
+  // in keinem Rezept vorkommen, würde ohnehin nichts finden.
   const ingredientOptions = useMemo(() => {
-    const names = new Set<string>();
-    for (const i of COMMON_INGREDIENTS) names.add(i.name);
-    for (const i of allIngredients) names.add(i.name);
-    return Array.from(names)
-      .sort((a, b) => a.localeCompare(b))
+    return allIngredients
+      .map((i) => i.name)
+      .sort((a, b) => a.localeCompare(b, "de"))
       .map((name) => ({ value: name, label: name }));
   }, [allIngredients]);
 
@@ -193,8 +190,47 @@ export function FilterScreen({ navigation }: Props) {
         {orderedCategories(tagsByCategory)
           .filter(([category]) => (category === "alcohol" ? isDrink : true))
           .map(([category, items]) => {
-          const opts = items.map((t) => ({ value: t.id, label: t.name }));
           const title = TAG_CATEGORY_LABELS[category] ?? category;
+
+          // Allergen-Sonderfall: die Tag-Namen sind positiv ("enthält-gluten"),
+          // im Filter werden sie aber invertiert angezeigt ("glutenfrei") und
+          // schreiben in excludedTagIds — d.h. Rezepte mit diesem Tag werden
+          // ausgeblendet. So bleibt der Anlege-Vorgang einfach (nur tatsächlich
+          // enthaltene Allergene markieren).
+          if (category === "allergen") {
+            const opts = items.map((t) => ({
+              value: t.id,
+              label: allergenInverseLabel(t.name),
+            }));
+            const useDropdown = items.length > DROPDOWN_THRESHOLD;
+            return (
+              <Section
+                key={category}
+                title={title}
+                subtitle="Wähle, was im Rezept NICHT enthalten sein soll."
+              >
+                {useDropdown ? (
+                  <MultiSelectDropdown
+                    options={opts}
+                    value={draft.excludedTagIds}
+                    onChange={(v) => setDraft({ ...draft, excludedTagIds: v })}
+                    placeholder={`${title} auswählen…`}
+                    modalTitle={title}
+                    searchPlaceholder={`${title} suchen…`}
+                  />
+                ) : (
+                  <SelectChips
+                    options={opts}
+                    value={draft.excludedTagIds}
+                    onChange={(v) => setDraft({ ...draft, excludedTagIds: v })}
+                    multiSelect
+                  />
+                )}
+              </Section>
+            );
+          }
+
+          const opts = items.map((t) => ({ value: t.id, label: t.name }));
           // Bei >20 Tags pro Kategorie kippen wir auf das Dropdown — sonst
           // bleibt die Chip-Reihe, die für überschaubare Mengen schneller
           // zu bedienen ist (1 Tap statt 2).

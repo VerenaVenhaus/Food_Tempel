@@ -30,6 +30,7 @@ import {
 import { SelectChips } from "../components/SelectChips";
 import {
   CONTINENT_OPTIONS,
+  CONTINENT_VALUES,
   COUNTRIES,
   getContinentsForCountries,
   joinCuisineArray,
@@ -48,6 +49,7 @@ import {
   getNutrition,
   getRecipeById,
   listTags,
+  reconcileBlsCode,
   saveNutrition,
   updateRecipeWithDetails,
   type CreateRecipeInput,
@@ -80,10 +82,16 @@ export function RecipeFormScreen({ navigation, route }: Props) {
   // Form-State
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  // Kurzbeschreibung — 1-2 Zeilen, erscheint in der Rezept-Karte auf der
+  // Hauptseite unter dem Titel. Bewusst getrennt von der ausführlichen
+  // Beschreibung, damit die Karte aufgeräumt bleibt.
+  const [shortDescription, setShortDescription] = useState("");
   const [instructions, setInstructions] = useState("");
   const [prepTime, setPrepTime] = useState("");
   const [cookTime, setCookTime] = useState("");
-  const [servings, setServings] = useState("");
+  // Default: 1 Portion — die häufigste Annahme bei neuen Rezepten und
+  // verhindert eine leere Anzeige. Beim Bearbeiten überschreibt der DB-Wert.
+  const [servings, setServings] = useState("1");
   // Mahlzeiten + Küchen sind jetzt Mehrfachauswahl. In der DB landen sie
   // als komma-separierte Strings; im Form arbeiten wir mit Arrays.
   const [mealTypes, setMealTypes] = useState<string[]>([]);
@@ -138,7 +146,7 @@ export function RecipeFormScreen({ navigation, route }: Props) {
     });
     // Wir nehmen save bewusst NICHT in die Deps, sonst flickert der Header.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigation, isEdit, isDrink, saving, title, instructions, ingredients, selectedTagIds, imageUri, mealTypes, cuisines, prepTime, cookTime, servings, description]);
+  }, [navigation, isEdit, isDrink, saving, title, instructions, ingredients, selectedTagIds, imageUri, mealTypes, cuisines, prepTime, cookTime, servings, description, shortDescription]);
 
   // Alle Tags zur Auswahl laden — direkt nach Kategorie gruppiert
   useEffect(() => {
@@ -167,6 +175,7 @@ export function RecipeFormScreen({ navigation, route }: Props) {
       setKind(data.kind);
       setTitle(data.title);
       setDescription(data.description ?? "");
+      setShortDescription(data.shortDescription ?? "");
       setInstructions(data.instructions);
       setPrepTime(data.prepTimeMinutes?.toString() ?? "");
       setCookTime(data.cookTimeMinutes?.toString() ?? "");
@@ -174,10 +183,22 @@ export function RecipeFormScreen({ navigation, route }: Props) {
       // Aus den komma-separierten DB-Strings zu Arrays.
       const loadedMealTypes = parseMealTypeString(data.mealType);
       setMealTypes(loadedMealTypes);
-      const loadedCuisines = parseCuisineString(data.cuisine);
+      // cuisine-Spalte kann Länder UND Kontinent-Werte gemischt enthalten
+      // (wenn der User nur einen Kontinent ohne Land gewählt hat). Wir
+      // trennen die beiden hier wieder auf.
+      const parsed = parseCuisineString(data.cuisine);
+      const loadedCuisines = parsed.filter((v) => !CONTINENT_VALUES.has(v));
+      const storedContinents = parsed.filter((v) => CONTINENT_VALUES.has(v));
       setCuisines(loadedCuisines);
-      // Kontinente aus den geladenen Ländern ableiten.
-      setContinents(getContinentsForCountries(loadedCuisines));
+      // Kontinente: gespeicherte + aus den Ländern abgeleitete, dedupliziert.
+      setContinents(
+        Array.from(
+          new Set([
+            ...storedContinents,
+            ...getContinentsForCountries(loadedCuisines),
+          ]),
+        ),
+      );
       setImageUri(data.imageUri ?? null);
       setIngredients(
         data.ingredients.map((i) => ({
@@ -185,6 +206,7 @@ export function RecipeFormScreen({ navigation, route }: Props) {
           quantity: i.quantity != null ? String(i.quantity) : "",
           unit: i.unit ?? "",
           notes: i.notes ?? "",
+          blsCode: i.blsCode ?? null,
         })),
       );
       setSelectedTagIds(data.tags.map((t) => t.id));
@@ -229,6 +251,7 @@ export function RecipeFormScreen({ navigation, route }: Props) {
     return {
       title: title.trim(),
       description: description.trim() || undefined,
+      shortDescription: shortDescription.trim() || undefined,
       instructions: instructions.trim(),
       prepTimeMinutes: parseIntOrNull(prepTime),
       cookTimeMinutes: parseIntOrNull(cookTime),
@@ -236,8 +259,14 @@ export function RecipeFormScreen({ navigation, route }: Props) {
       imageUri: imageUri ?? undefined,
       sourceType: "manual",
       // Multi-Werte werden zu komma-separierten Strings serialisiert.
-      // Leere Auswahl → null/undefined, sodass die DB-Spalten NULL bleiben.
-      cuisine: joinCuisineArray(cuisines) ?? undefined,
+      // Länder UND Kontinente landen in derselben Spalte (cuisine) — beim
+      // Laden werden sie wieder per CONTINENT_VALUES-Set getrennt. So bleibt
+      // eine reine Kontinent-Auswahl (z.B. "Europa" ohne Land) erhalten.
+      cuisine:
+        joinCuisineArray([
+          ...continents,
+          ...cuisines,
+        ]) ?? undefined,
       mealType: joinMealTypeArray(mealTypes) ?? undefined,
       kind,
       ingredients: ingredients
@@ -247,6 +276,7 @@ export function RecipeFormScreen({ navigation, route }: Props) {
           quantity: parseFloatOrNull(i.quantity),
           unit: i.unit.trim() || undefined,
           notes: i.notes.trim() || undefined,
+          blsCode: i.blsCode ?? null,
         })),
       tagIds: selectedTagIds,
     };
@@ -258,26 +288,62 @@ export function RecipeFormScreen({ navigation, route }: Props) {
   function applyExtracted(r: ExtractedRecipe) {
     if (r.title) setTitle(r.title);
     if (r.description) setDescription(r.description);
+    if (r.shortDescription) setShortDescription(r.shortDescription);
     if (r.instructions) setInstructions(r.instructions);
     if (r.prepTimeMinutes != null) setPrepTime(String(r.prepTimeMinutes));
     if (r.cookTimeMinutes != null) setCookTime(String(r.cookTimeMinutes));
     if (r.servings != null) setServings(String(r.servings));
-    // KI liefert je einen Wert — wir füllen die Arrays mit genau diesem
-    // Wert und ergänzen ggf. den passenden Kontinent.
-    if (r.mealType) setMealTypes([r.mealType]);
-    if (r.cuisine) {
+    // kind wird BEWUSST nicht von der KI übernommen — der User hat das vorab
+    // im Chooser festgelegt und das soll Vorrang haben.
+    // mealType kommt kommagetrennt zurück (Mehrfach-Auswahl möglich).
+    if (r.mealType) {
+      setMealTypes(
+        r.mealType
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean),
+      );
+    }
+    if (r.cuisine && r.cuisine.trim().toLowerCase() !== "other") {
+      // KI gibt manchmal "other" zurück, wenn sie sich unsicher ist — wir
+      // ignorieren das hier, sonst landet "other" als unlesbares Tag in der
+      // Detail-Ansicht. Lieber kein Eintrag als ein nichtssagender.
       setCuisines([r.cuisine]);
       setContinents(getContinentsForCountries([r.cuisine]));
     }
     if (r.imageUri) setImageUri(r.imageUri);
+    // Tag-Namen aus der KI → DB-Tag-IDs. Case-insensitiv matchen, unbekannte
+    // Namen still verwerfen (z.B. wenn die KI mal frei erfindet trotz Liste).
+    if (r.tags && r.tags.length > 0) {
+      const allTags = Object.values(tagsByCategory).flat();
+      const ids = r.tags
+        .map((aiName) => aiName.trim().toLowerCase())
+        .map((q) => allTags.find((t) => t.name.toLowerCase() === q)?.id)
+        .filter((id): id is string => Boolean(id));
+      if (ids.length > 0) {
+        // Mit ggf. bestehenden Tags zusammenführen (Set entdoppelt).
+        setSelectedTagIds((existing) =>
+          Array.from(new Set([...existing, ...ids])),
+        );
+      }
+    }
     if (r.ingredients && r.ingredients.length > 0) {
       setIngredients(
-        r.ingredients.map((i) => ({
-          name: i.name,
-          quantity: i.quantity != null ? String(i.quantity) : "",
-          unit: i.unit ?? "",
-          notes: i.notes ?? "",
-        })),
+        r.ingredients.map((i) => {
+          // KI-Reconcile: Wenn der Name sicher einem BLS-Eintrag entspricht,
+          // übernehmen wir Name + Code aus dem BLS — so kann Phase 4 hinterher
+          // exakte Nährwerte rechnen. Bleibt der Treffer unsicher, behalten
+          // wir den Roh-Namen der KI (blsCode = null), Nährwerte gehen dann
+          // später per Backend/OFF-Fallback.
+          const bls = reconcileBlsCode(i.name);
+          return {
+            name: bls ? bls.name : i.name,
+            quantity: i.quantity != null ? String(i.quantity) : "",
+            unit: i.unit ?? "",
+            notes: i.notes ?? "",
+            blsCode: bls ? bls.code : null,
+          };
+        }),
       );
     }
   }
@@ -345,7 +411,7 @@ export function RecipeFormScreen({ navigation, route }: Props) {
       >
         {/* KI-Import nur beim Neu-Anlegen anbieten — beim Bearbeiten
             wäre es verwirrend, weil Felder schon befüllt sind. */}
-        {!isEdit && <ImportSection onImport={applyExtracted} />}
+        {!isEdit && <ImportSection onImport={applyExtracted} kind={kind} />}
 
         <ImagePickerField value={imageUri} onChange={setImageUri} />
 
@@ -360,12 +426,21 @@ export function RecipeFormScreen({ navigation, route }: Props) {
 
         <FormField
           label="Kurzbeschreibung"
-          value={description}
-          onChangeText={setDescription}
-          placeholder="Worum geht's? (optional)"
+          value={shortDescription}
+          onChangeText={setShortDescription}
+          placeholder="1-2 Zeilen, erscheint in der Rezept-Karte"
         />
 
-        {/* Zeit-Felder in einer Reihe */}
+        <FormField
+          label="Ausführliche Beschreibung"
+          value={description}
+          onChangeText={setDescription}
+          placeholder="Hintergrund, Tipps, Geschichte … (optional)"
+          multiline
+        />
+
+        {/* Zeit-Felder in einer Reihe — nur zwei Felder, damit das längere
+            "Vorbereitung (Min)"-Label bei halber Breite einzeilig bleibt. */}
         <View style={styles.row}>
           <View style={styles.rowItem}>
             <FormField
@@ -385,6 +460,11 @@ export function RecipeFormScreen({ navigation, route }: Props) {
               placeholder="20"
             />
           </View>
+        </View>
+
+        {/* Portionen in eigener Reihe darunter — eine Spalte (halbe Breite,
+            bündig unter "Vorbereitung"), rechte Spalte bleibt als Platzhalter leer. */}
+        <View style={styles.row}>
           <View style={styles.rowItem}>
             <FormField
               label="Portionen"
@@ -394,6 +474,7 @@ export function RecipeFormScreen({ navigation, route }: Props) {
               placeholder="2"
             />
           </View>
+          <View style={styles.rowItem} />
         </View>
 
         <IngredientList value={ingredients} onChange={setIngredients} />
@@ -514,6 +595,7 @@ export function RecipeFormScreen({ navigation, route }: Props) {
                     name: i.name.trim(),
                     quantity: parseFloatOrNull(i.quantity) ?? null,
                     unit: i.unit.trim() || null,
+                    blsCode: i.blsCode ?? null,
                   }))}
                 servings={parseIntOrNull(servings) ?? 1}
                 initialComputedForServings={nutritionInitialServings}

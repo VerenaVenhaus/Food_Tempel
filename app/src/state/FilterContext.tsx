@@ -26,6 +26,11 @@ export type RecipeFilterState = {
   continents: string[];
   cuisines: string[];
   tagIds: string[];
+  // Tag-IDs, die ein Rezept NICHT haben darf — für die invertierte Allergen-
+  // Logik: Filter zeigt "glutenfrei", schließt aber Rezepte mit "enthält-gluten"
+  // aus. So muss der User beim Anlegen nur die echt enthaltenen Allergene
+  // markieren statt alle "frei"-Varianten anklicken.
+  excludedTagIds: string[];
   ingredientNames: string[];
   // Nährwerte-Filter (pro Portion). null = nicht gesetzt.
   maxCalories: number | null;
@@ -39,6 +44,7 @@ const EMPTY_FILTER: RecipeFilterState = {
   continents: [],
   cuisines: [],
   tagIds: [],
+  excludedTagIds: [],
   ingredientNames: [],
   maxCalories: null,
   minProtein: null,
@@ -101,6 +107,7 @@ export function FilterProvider({ children }: { children: ReactNode }) {
     if (filter.cuisines.length === 0 && filter.continents.length > 0) n++;
     n += filter.cuisines.length;
     n += filter.tagIds.length;
+    n += filter.excludedTagIds.length;
     n += filter.ingredientNames.length;
     if (filter.maxCalories != null) n++;
     if (filter.minProtein != null) n++;

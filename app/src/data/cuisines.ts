@@ -137,9 +137,19 @@ export function joinCuisineArray(arr: string[]): string | null {
   return cleaned.join(",");
 }
 
-// Lookup-Map: "italian" → "Italien".
-export const CUISINE_LABEL_BY_VALUE: Record<string, string> = Object.fromEntries(
-  COUNTRIES.map((c) => [c.value, c.label]),
+// Lookup-Map: "italian" → "Italien". Enthält auch Kontinent-Werte
+// ("europe" → "Europa") — der User kann nur einen Kontinent ohne Land
+// speichern, dann steht z.B. "europe" als Wert in der cuisine-Spalte.
+export const CUISINE_LABEL_BY_VALUE: Record<string, string> = {
+  ...Object.fromEntries(COUNTRIES.map((c) => [c.value, c.label])),
+  ...Object.fromEntries(CONTINENT_OPTIONS.map((c) => [c.value, c.label])),
+};
+
+// Set aller Kontinent-Werte — nützlich, um beim Laden eines Rezepts zu
+// trennen, welche Einträge der gemischten cuisine-Spalte Kontinente sind
+// und welche Länder.
+export const CONTINENT_VALUES: ReadonlySet<string> = new Set(
+  CONTINENT_OPTIONS.map((c) => c.value),
 );
 
 // Komma-Liste aus der DB ("italian,german") in lesbare Form formatieren:

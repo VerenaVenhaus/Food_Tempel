@@ -13,6 +13,7 @@ import { useState } from "react";
 import { Image, Pressable, StyleSheet, Text, View } from "react-native";
 
 import { ProfileMenu } from "../components/ProfileMenu";
+import { AboutScreen } from "../screens/AboutScreen";
 import { FilterScreen } from "../screens/FilterScreen";
 import { HomeScreen } from "../screens/HomeScreen";
 import { RecipeDetailScreen } from "../screens/RecipeDetailScreen";
@@ -85,6 +86,11 @@ export function AppNavigator() {
           component={FilterScreen}
           options={{ title: "Filter", presentation: "modal" }}
         />
+        <Stack.Screen
+          name="About"
+          component={AboutScreen}
+          options={{ title: "Über & Lizenzen" }}
+        />
       </Stack.Navigator>
 
       <ProfileMenu
@@ -102,17 +108,17 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   logo: {
-    width: 32,
-    height: 32,
+    width: 38,
+    height: 38,
     borderRadius: radius.sm,
   },
   brandText: {
-    fontSize: fontSize.lg,
+    fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
   headerIcon: {
-    fontSize: 24,
+    fontSize: 28,
     color: colors.textPrimary,
     paddingHorizontal: 8,
   },

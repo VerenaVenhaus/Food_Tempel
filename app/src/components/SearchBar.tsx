@@ -3,6 +3,7 @@
 //
 // Optional zeigt der Filter-Button ein Badge mit der Anzahl aktiver Filter.
 
+import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
@@ -52,7 +53,14 @@ export function SearchBar({
           ]}
           accessibilityLabel="Filter öffnen"
         >
-          <Text style={styles.filterIcon}>⚙️</Text>
+          {/* Echtes Trichter-Icon aus @expo/vector-icons. "funnel-outline"
+              ist nur die Kontur — innen also transparent (zeigt den
+              grünen Knopf-Hintergrund). */}
+          <Ionicons
+            name="funnel-outline"
+            size={20}
+            color={colors.textSecondary}
+          />
           {filterBadge > 0 && (
             <View style={styles.badge}>
               <Text style={styles.badgeText}>{filterBadge}</Text>
@@ -99,22 +107,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
   },
   filterButton: {
-    // Heller, freundlicher Hintergrund mit zarter Umrandung — wirkt
-    // weniger "Plakat", besser zum natürlichen Look der App.
+    // Heller, freundlicher Hintergrund mit oranger Umrandung.
     backgroundColor: colors.freshLight,
     borderWidth: 1,
-    borderColor: colors.fresh,
+    borderColor: colors.primary,
     borderRadius: radius.pill,
-    width: 48,
-    height: 48,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
   },
   filterButtonPressed: {
     opacity: 0.7,
-  },
-  filterIcon: {
-    fontSize: 24,
   },
   badge: {
     position: "absolute",

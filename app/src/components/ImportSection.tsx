@@ -33,6 +33,10 @@ import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 
 type Props = {
   onImport: (recipe: ExtractedRecipe) => void;
+  // food vs drink wurde vom User in der Form vorab gewählt (KindChooser).
+  // Wir reichen es an die KI durch, damit sie die richtige mealType-Liste
+  // nutzt — die KI bestimmt das NICHT selbst.
+  kind: "food" | "drink";
 };
 
 // Liest eine lokale Datei (file:// URI) und gibt den Inhalt als Base64.
@@ -42,7 +46,7 @@ async function readFileAsBase64(uri: string): Promise<string> {
   });
 }
 
-export function ImportSection({ onImport }: Props) {
+export function ImportSection({ onImport, kind }: Props) {
   const [loading, setLoading] = useState<null | "photo" | "url" | "pdf">(null);
   const [urlModalVisible, setUrlModalVisible] = useState(false);
   const [urlInput, setUrlInput] = useState("");
@@ -89,13 +93,13 @@ export function ImportSection({ onImport }: Props) {
     }
 
     setLoading("photo");
-    const res = await extractFromPhoto(asset.base64, "image/jpeg");
+    const res = await extractFromPhoto(asset.base64, "image/jpeg", kind);
     setLoading(null);
 
     if (res.ok) {
-      // sourceType + imageUri ergänzen, damit das Original-Bild auch
-      // gespeichert wird (nicht nur die Text-Daten).
-      handleSuccess({ ...res.data, imageUri: asset.uri });
+      // Das hochgeladene Foto ist die ganze Rezept-Seite — bewusst KEIN
+      // imageUri setzen. Der User kann später manuell ein Bild hinzufügen.
+      handleSuccess(res.data);
     } else {
       handleError("Foto-Import", res.error);
     }
@@ -126,11 +130,12 @@ export function ImportSection({ onImport }: Props) {
     }
 
     setLoading("photo");
-    const res = await extractFromPhoto(asset.base64, "image/jpeg");
+    const res = await extractFromPhoto(asset.base64, "image/jpeg", kind);
     setLoading(null);
 
     if (res.ok) {
-      handleSuccess({ ...res.data, imageUri: asset.uri });
+      // Wie beim Galerie-Foto: kein imageUri vom Original-Bild setzen.
+      handleSuccess(res.data);
     } else {
       handleError("Kamera-Import", res.error);
     }
@@ -142,7 +147,7 @@ export function ImportSection({ onImport }: Props) {
     if (!url) return;
     setUrlModalVisible(false);
     setLoading("url");
-    const res = await extractFromUrl(url);
+    const res = await extractFromUrl(url, kind);
     setLoading(null);
     setUrlInput("");
 
@@ -162,7 +167,7 @@ export function ImportSection({ onImport }: Props) {
     setLoading("pdf");
     try {
       const base64 = await readFileAsBase64(asset.uri);
-      const res = await extractFromPdf(base64);
+      const res = await extractFromPdf(base64, kind);
       setLoading(null);
 
       if (res.ok) handleSuccess(res.data);

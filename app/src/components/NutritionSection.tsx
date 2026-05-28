@@ -2,11 +2,9 @@
 //
 // Zwei Wege, Werte einzutragen:
 //   1. Manuell — jeder Wert in seinem TextInput
-//   2. "Aus Zutaten berechnen" — schickt Zutaten an das Backend, das
-//      bei Open Food Facts nachschaut und Werte zurückgibt
-//
-// Beim Backend-Aufruf brauchen wir die aktuellen Zutaten und Portionen aus
-// dem Parent — werden als Props reingegeben.
+//   2. "Aus Zutaten berechnen" — Zutaten mit BLS-Code werden lokal aus dem
+//      Bundeslebensmittelschlüssel gerechnet (exakt, offline); für Zutaten
+//      ohne Code holt das Backend Werte bei Open Food Facts nach.
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -46,7 +44,13 @@ type Props = {
   value: NutritionDraft;
   onChange: (next: NutritionDraft) => void;
   // Vom Form übergeben, damit die Berechnung weiß was zu rechnen ist.
-  ingredients: Array<{ name: string; quantity?: number | null; unit?: string | null }>;
+  // blsCode (optional) ermöglicht die exakte lokale Nährwert-Berechnung.
+  ingredients: Array<{
+    name: string;
+    quantity?: number | null;
+    unit?: string | null;
+    blsCode?: string | null;
+  }>;
   servings: number;
   // Beim Bearbeiten eines existierenden Rezepts: für wie viele Portionen
   // sind die geladenen Nährwerte berechnet? Wir merken uns das und können
@@ -173,8 +177,9 @@ export function NutritionSection({
   return (
     <View style={styles.container}>
       <Text style={styles.hint}>
-        Nährwerte pro Portion. Du kannst sie manuell eintragen oder von der
-        KI aus den Zutaten berechnen lassen (Quelle: Open Food Facts).
+        Nährwerte pro Portion. Du kannst sie manuell eintragen oder aus den
+        Zutaten berechnen lassen (Quelle: Bundeslebensmittelschlüssel; Open
+        Food Facts als Fallback für frei eingetippte Zutaten).
       </Text>
 
       <Pressable

@@ -30,6 +30,7 @@ export type RecipeWithDetails = Recipe & {
     quantity: number | null;
     unit: string | null;
     notes: string | null;
+    blsCode: string | null;
   }>;
   tags: Array<{ id: string; name: string; category: string }>;
   nutrition: Nutrition | null;
@@ -43,6 +44,7 @@ export type CreateRecipeInput = Omit<NewRecipe, "id" | "createdAt" | "updatedAt"
     quantity?: number | null;
     unit?: string | null;
     notes?: string | null;
+    blsCode?: string | null;
   }>;
   tagIds?: string[];
 };
@@ -79,6 +81,7 @@ export async function getRecipeById(id: string): Promise<RecipeWithDetails | nul
       quantity: recipeIngredients.quantity,
       unit: recipeIngredients.unit,
       notes: recipeIngredients.notes,
+      blsCode: ingredients.blsCode,
       sortOrder: recipeIngredients.sortOrder,
     })
     .from(recipeIngredients)
@@ -130,6 +133,7 @@ export async function createRecipe(
       id: recipeId,
       title: input.title,
       description: input.description,
+      shortDescription: input.shortDescription,
       instructions: input.instructions,
       prepTimeMinutes: input.prepTimeMinutes,
       cookTimeMinutes: input.cookTimeMinutes,
@@ -158,11 +162,19 @@ export async function createRecipe(
           .where(eq(ingredients.name, ing.name));
         if (existing) {
           ingredientId = existing.id;
+          // BLS-Code nachtragen, falls die Zutat noch keinen hatte und jetzt
+          // einer aus dem Autocomplete mitkommt.
+          if (ing.blsCode && !existing.blsCode) {
+            await tx
+              .update(ingredients)
+              .set({ blsCode: ing.blsCode })
+              .where(eq(ingredients.id, ingredientId));
+          }
         } else {
           ingredientId = newId();
           await tx
             .insert(ingredients)
-            .values({ id: ingredientId, name: ing.name });
+            .values({ id: ingredientId, name: ing.name, blsCode: ing.blsCode ?? null });
         }
 
         const link: NewRecipeIngredient = {
@@ -222,6 +234,7 @@ export async function updateRecipeWithDetails(
       .set({
         title: input.title,
         description: input.description,
+        shortDescription: input.shortDescription,
         instructions: input.instructions,
         prepTimeMinutes: input.prepTimeMinutes,
         cookTimeMinutes: input.cookTimeMinutes,
@@ -250,11 +263,17 @@ export async function updateRecipeWithDetails(
           .where(eq(ingredients.name, ing.name));
         if (existing) {
           ingredientId = existing.id;
+          if (ing.blsCode && !existing.blsCode) {
+            await tx
+              .update(ingredients)
+              .set({ blsCode: ing.blsCode })
+              .where(eq(ingredients.id, ingredientId));
+          }
         } else {
           ingredientId = newId();
           await tx
             .insert(ingredients)
-            .values({ id: ingredientId, name: ing.name });
+            .values({ id: ingredientId, name: ing.name, blsCode: ing.blsCode ?? null });
         }
 
         await tx.insert(recipeIngredients).values({
@@ -308,6 +327,9 @@ export type RecipeFilter = {
   cuisines?: string[];
   mealTypes?: string[];
   tagIds?: string[];
+  // Tag-IDs, die das Rezept NICHT haben darf — z.B. invertierte Allergen-
+  // Auswahl ("glutenfrei" → schließt Rezepte mit "enthält-gluten" aus).
+  excludedTagIds?: string[];
   ingredientNames?: string[];
   // Nährwerte-Filter (pro Portion). Rezepte ohne erfasste Nährwerte werden
   // ausgeschlossen, wenn einer dieser Filter aktiv ist.
@@ -354,6 +376,21 @@ export async function filterRecipes(filter: RecipeFilter): Promise<Recipe[]> {
     for (const tagId of filter.tagIds) {
       conditions.push(
         sql`EXISTS (
+          SELECT 1 FROM ${recipeTags}
+          WHERE ${recipeTags.recipeId} = ${recipes.id}
+            AND ${recipeTags.tagId} = ${tagId}
+        )`,
+      );
+    }
+  }
+
+  // Ausgeschlossene Tags: Rezept darf KEINEN dieser Tags haben. Spiegelbild
+  // zur EXISTS-Logik oben, nur als NOT EXISTS pro ID. Wird vom Filter
+  // genutzt, um Allergene zu negieren ("glutenfrei" = nicht "enthält-gluten").
+  if (filter.excludedTagIds && filter.excludedTagIds.length > 0) {
+    for (const tagId of filter.excludedTagIds) {
+      conditions.push(
+        sql`NOT EXISTS (
           SELECT 1 FROM ${recipeTags}
           WHERE ${recipeTags.recipeId} = ${recipes.id}
             AND ${recipeTags.tagId} = ${tagId}

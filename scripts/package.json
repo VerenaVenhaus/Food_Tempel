@@ -5,9 +5,11 @@
   "type": "module",
   "description": "Einmalige Hilfs-Skripte fürs Projekt — nicht Teil der App.",
   "scripts": {
-    "icons": "node convert-icons.mjs"
+    "icons": "node convert-icons.mjs",
+    "bls": "node convert-bls.mjs"
   },
   "dependencies": {
-    "jimp": "^1.6.0"
+    "jimp": "^1.6.0",
+    "xlsx": "^0.18.5"
   }
 }

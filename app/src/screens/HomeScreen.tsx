@@ -39,9 +39,15 @@ export function HomeScreen({ navigation }: Props) {
         if (filter.cuisines.length > 0) {
           effectiveCuisines = filter.cuisines;
         } else if (filter.continents.length > 0) {
-          effectiveCuisines = COUNTRIES.filter((c) =>
-            filter.continents.includes(c.continent),
-          ).map((c) => c.value);
+          // Bei Kontinent-Filter: passende Länder UND die Kontinent-Werte
+          // selbst — damit Rezepte mit nur Kontinent in der cuisine-Spalte
+          // (kein Land gewählt) ebenfalls gefunden werden.
+          effectiveCuisines = [
+            ...filter.continents,
+            ...COUNTRIES.filter((c) =>
+              filter.continents.includes(c.continent),
+            ).map((c) => c.value),
+          ];
         }
 
         const list = await filterRecipes({
@@ -50,6 +56,8 @@ export function HomeScreen({ navigation }: Props) {
           mealTypes: filter.mealTypes.length > 0 ? filter.mealTypes : undefined,
           cuisines: effectiveCuisines,
           tagIds: filter.tagIds.length > 0 ? filter.tagIds : undefined,
+          excludedTagIds:
+            filter.excludedTagIds.length > 0 ? filter.excludedTagIds : undefined,
           ingredientNames:
             filter.ingredientNames.length > 0 ? filter.ingredientNames : undefined,
           maxCalories: filter.maxCalories,
@@ -121,6 +129,9 @@ export function HomeScreen({ navigation }: Props) {
           renderItem={({ item }) => (
             <RecipeCard
               title={item.title}
+              // Nur die echte Kurzbeschreibung — die ausführliche bleibt
+              // bewusst draußen, damit die Karte nicht überladen wirkt.
+              shortDescription={item.shortDescription}
               imageUri={item.imageUri}
               mealType={item.mealType}
               prepTimeMinutes={item.prepTimeMinutes}

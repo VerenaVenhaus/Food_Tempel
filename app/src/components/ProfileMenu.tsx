@@ -3,8 +3,6 @@
 
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system/legacy";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -22,7 +20,6 @@ import {
   clearCloudBackup,
   restoreFromCloud,
 } from "../lib/cloudSync";
-import { importRecipeFromJson } from "../lib/importExport";
 import type { RootStackParamList } from "../navigation/types";
 import { useAuth } from "../state/AuthContext";
 import { useFilter } from "../state/FilterContext";
@@ -39,15 +36,22 @@ export function ProfileMenu({ visible, onClose }: Props) {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // Welche Aktion läuft gerade? Verhindert Doppelklick + zeigt Spinner.
-  const [busy, setBusy] = useState<null | "backup" | "restore" | "import" | "clear">(null);
+  const [busy, setBusy] = useState<null | "backup" | "restore" | "clear">(null);
   // Interne View des Menüs: "menu" (Default) oder "chooser" (zeigt Essen/
   // Getränk-Auswahl bevor zum Form-Screen navigiert wird).
   const [view, setView] = useState<"menu" | "chooser">("menu");
+  // Cloud-Unterpunkte (Sichern/Wiederherstellen/Leeren) sind unter einem
+  // einzigen "Cloud"-Eintrag zusammengefasst und werden per Klick aufgeklappt.
+  const [cloudExpanded, setCloudExpanded] = useState(false);
 
-  // Beim Schließen des Modals zurück auf die Menü-Ansicht — sonst landet der
-  // User beim nächsten Öffnen direkt im Chooser, was er nicht erwartet.
+  // Beim Schließen des Modals zurück auf die Menü-Ansicht und Cloud zuklappen
+  // — sonst landet der User beim nächsten Öffnen mitten im Chooser oder mit
+  // bereits geöffneter Untergruppe, was er nicht erwartet.
   useEffect(() => {
-    if (!visible) setView("menu");
+    if (!visible) {
+      setView("menu");
+      setCloudExpanded(false);
+    }
   }, [visible]);
 
   function handleCreateRecipe() {
@@ -67,31 +71,11 @@ export function ProfileMenu({ visible, onClose }: Props) {
     await signOut();
   }
 
-  // --- Import einer geteilten JSON-Datei ----------------------------------
-  async function handleImport() {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: ["application/json", "text/plain"],
-      copyToCacheDirectory: true,
-    });
-    if (result.canceled || !result.assets[0]) return;
-
-    setBusy("import");
-    try {
-      const content = await FileSystem.readAsStringAsync(result.assets[0].uri, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-      await importRecipeFromJson(content);
-      bumpRefresh();
-      onClose();
-      Alert.alert("Importiert", "Das Rezept wurde zur Liste hinzugefügt.");
-    } catch (err) {
-      Alert.alert(
-        "Import fehlgeschlagen",
-        err instanceof Error ? err.message : String(err),
-      );
-    } finally {
-      setBusy(null);
-    }
+  function handleAbout() {
+    // setTimeout, weil das Modal sonst noch im Vordergrund ist, wenn die
+    // Navigation passiert — dann sieht der User kurz nichts.
+    onClose();
+    setTimeout(() => navigation.navigate("About"), 50);
   }
 
   // --- Cloud-Backup --------------------------------------------------------
@@ -228,7 +212,6 @@ export function ProfileMenu({ visible, onClose }: Props) {
                     <Text style={styles.busyText}>
                       {busy === "backup" && "Sichere zu Cloud…"}
                       {busy === "restore" && "Lade aus Cloud…"}
-                      {busy === "import" && "Importiere…"}
                       {busy === "clear" && "Lösche Cloud-Backup…"}
                     </Text>
                   </View>
@@ -241,28 +224,47 @@ export function ProfileMenu({ visible, onClose }: Props) {
                       label="Rezept erstellen"
                       onPress={handleCreateRecipe}
                     />
+
+                    <View style={styles.divider} />
+
+                    {/* Aufklappbarer Cloud-Block — drei Aktionen, die unter
+                        einem einzigen Eintrag zusammengefasst sind, damit das
+                        Hauptmenü ruhiger wirkt. */}
                     <MenuItem
-                      icon="📥"
-                      label="Rezept importieren"
-                      onPress={handleImport}
+                      icon="☁️"
+                      label="Cloud"
+                      chevron={cloudExpanded ? "up" : "down"}
+                      onPress={() => setCloudExpanded((v) => !v)}
                     />
+                    {cloudExpanded && (
+                      <>
+                        <MenuItem
+                          icon="💾"
+                          label="In Cloud sichern"
+                          indent
+                          onPress={handleBackup}
+                        />
+                        <MenuItem
+                          icon="🔄"
+                          label="Aus Cloud wiederherstellen"
+                          indent
+                          onPress={confirmRestore}
+                        />
+                        <MenuItem
+                          icon="🧹"
+                          label="Cloud-Backup leeren"
+                          indent
+                          onPress={confirmClearCloud}
+                        />
+                      </>
+                    )}
 
                     <View style={styles.divider} />
 
                     <MenuItem
-                      icon="☁️"
-                      label="In Cloud sichern"
-                      onPress={handleBackup}
-                    />
-                    <MenuItem
-                      icon="🔄"
-                      label="Aus Cloud wiederherstellen"
-                      onPress={confirmRestore}
-                    />
-                    <MenuItem
-                      icon="🧹"
-                      label="Cloud-Backup leeren"
-                      onPress={confirmClearCloud}
+                      icon="ℹ️"
+                      label="Über & Lizenzen"
+                      onPress={handleAbout}
                     />
 
                     <View style={styles.divider} />
@@ -339,17 +341,25 @@ function MenuItem({
   label,
   onPress,
   danger,
+  // Wenn gesetzt, erscheint rechts ein kleines Dreieck-Symbol — visualisiert
+  // einen aufklappbaren Bereich (z.B. "Cloud" mit Unterpunkten).
+  chevron,
+  // Tiefere linke Einrückung — für Unterpunkte eines aufgeklappten Bereichs.
+  indent,
 }: {
   icon: string;
   label: string;
   onPress: () => void;
   danger?: boolean;
+  chevron?: "down" | "up";
+  indent?: boolean;
 }) {
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.menuItem,
+        indent && styles.menuItemIndent,
         pressed && styles.menuItemPressed,
       ]}
     >
@@ -359,6 +369,11 @@ function MenuItem({
       <Text style={[styles.menuLabel, danger && styles.menuLabelDanger]}>
         {label}
       </Text>
+      {chevron && (
+        <Text style={styles.menuChevron}>
+          {chevron === "down" ? "▾" : "▴"}
+        </Text>
+      )}
     </Pressable>
   );
 }
@@ -444,8 +459,17 @@ const styles = StyleSheet.create({
     color: colors.danger,
   },
   menuLabel: {
+    flex: 1, // damit ein Chevron-Symbol rechts am Zeilenrand sitzt
     fontSize: fontSize.md,
     color: colors.textPrimary,
+  },
+  menuItemIndent: {
+    paddingLeft: spacing.xl, // sichtbar tieferer Einzug für Unterpunkte
+  },
+  menuChevron: {
+    fontSize: 36, // doppelt so groß wie vorher (18) — bewusst gewählter Wert
+    color: colors.textMuted,
+    paddingLeft: spacing.sm,
   },
   menuLabelDanger: {
     color: colors.danger,

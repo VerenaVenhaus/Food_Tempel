@@ -33,15 +33,25 @@ export async function searchIngredients(prefix: string): Promise<Ingredient[]> {
 export async function findOrCreateIngredient(
   name: string,
   defaultUnit?: string,
+  blsCode?: string | null,
 ): Promise<string> {
   const [existing] = await getDb()
     .select()
     .from(ingredients)
     .where(eq(ingredients.name, name));
-  if (existing) return existing.id;
+  if (existing) {
+    // BLS-Code nachtragen, falls noch keiner gesetzt war.
+    if (blsCode && !existing.blsCode) {
+      await getDb()
+        .update(ingredients)
+        .set({ blsCode })
+        .where(eq(ingredients.id, existing.id));
+    }
+    return existing.id;
+  }
 
   const id = newId();
-  await getDb().insert(ingredients).values({ id, name, defaultUnit });
+  await getDb().insert(ingredients).values({ id, name, defaultUnit, blsCode: blsCode ?? null });
   return id;
 }
 

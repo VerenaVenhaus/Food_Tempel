@@ -10,6 +10,9 @@ import { colors, fontSize, fontWeight, radius, shadow, spacing } from "../theme"
 
 type Props = {
   title: string;
+  // Eine Zeile Vorschau unter dem Titel. `numberOfLines={1}` kürzt
+  // automatisch mit "…", wenn der Text breiter ist als die Karte.
+  shortDescription?: string | null;
   imageUri?: string | null;
   // Komma-separierte Liste aus der DB ("breakfast,snack"). formatMealTypes
   // bringt's für die Anzeige in lesbare Form ("Frühstück, Snack").
@@ -21,6 +24,7 @@ type Props = {
 
 export function RecipeCard({
   title,
+  shortDescription,
   imageUri,
   mealType,
   prepTimeMinutes,
@@ -45,9 +49,17 @@ export function RecipeCard({
       )}
 
       <View style={styles.body}>
-        <Text style={styles.title} numberOfLines={2}>
+        {/* Bis zu 2 Zeilen, dann mit "…" gekürzt — damit lange Titel die
+            fixe Karten-Höhe (90 px) nicht sprengen. */}
+        <Text style={styles.title} numberOfLines={1}>
           {title}
         </Text>
+
+        {shortDescription ? (
+          <Text style={styles.shortDescription} numberOfLines={1}>
+            {shortDescription}
+          </Text>
+        ) : null}
 
         <View style={styles.metaRow}>
           {mealType && (
@@ -69,6 +81,9 @@ export function RecipeCard({
 const styles = StyleSheet.create({
   card: {
     flexDirection: "row",
+    // Fixe Höhe = Bildhöhe. So bleibt die Karte konstant, egal ob eine
+    // Kurzbeschreibung gepflegt ist oder nicht.
+    height: 90,
     backgroundColor: colors.background,
     borderRadius: radius.md,
     marginVertical: spacing.xs,
@@ -92,7 +107,12 @@ const styles = StyleSheet.create({
   },
   body: {
     flex: 1,
-    padding: spacing.md,
+    // Etwas straffere vertikale Polsterung, damit alle drei Zeilen
+    // (Titel, optional Kurzbeschreibung, Tags/Zeit) sicher passen.
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    // Titel nach oben, Meta-Zeile nach unten — Kurzbeschreibung (falls da)
+    // setzt sich automatisch in den Zwischenraum.
     justifyContent: "space-between",
   },
   title: {
@@ -100,11 +120,15 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
     color: colors.textPrimary,
   },
+  shortDescription: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    lineHeight: 16,
+  },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
-    marginTop: spacing.sm,
   },
   badge: {
     backgroundColor: colors.primaryLight,

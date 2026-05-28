@@ -24,7 +24,11 @@ import {
 export const recipes = sqliteTable("recipes", {
   id: text("id").primaryKey(), // UUID, wir generieren mit expo-crypto
   title: text("title").notNull(),
+  // Ausführliche Beschreibung — für die Detailansicht. Kann lang sein.
   description: text("description"),
+  // Kurzbeschreibung — 1-2 Zeilen, wird in der Rezept-Karte unter dem
+  // Titel angezeigt. Native `numberOfLines={2}` kürzt automatisch mit "…".
+  shortDescription: text("short_description"),
   instructions: text("instructions").notNull(), // Markdown / Schritte mit \n getrennt
   prepTimeMinutes: integer("prep_time_minutes"),
   cookTimeMinutes: integer("cook_time_minutes"),
@@ -69,8 +73,12 @@ export const recipes = sqliteTable("recipes", {
 // werden. Das hält die Datenmenge klein und erlaubt später Zutaten-basierte Suche.
 export const ingredients = sqliteTable("ingredients", {
   id: text("id").primaryKey(),
-  name: text("name").notNull().unique(), // "Mehl", "Tomate", ...
+  name: text("name").notNull().unique(), // "Apfel roh", "Mehl", ...
   defaultUnit: text("default_unit"), // Vorschlag für die UI, z.B. "g" bei Mehl
+  // BLS-Code des zugeordneten Lebensmittels (aus bls_foods). Wird gesetzt,
+  // wenn die Zutat aus dem BLS-Autocomplete gewählt wurde → exakte Nährwerte.
+  // NULL = frei eingetippt / (noch) keinem BLS-Eintrag zugeordnet.
+  blsCode: text("bls_code"),
   createdAt: integer("created_at")
     .notNull()
     .default(sql`(unixepoch() * 1000)`),
@@ -147,6 +155,30 @@ export const nutrition = sqliteTable("nutrition", {
 });
 
 // -----------------------------------------------------------------------------
+// bls_foods: Bundeslebensmittelschlüssel (BLS 4.0) — Lebensmittel-Stammdaten
+// -----------------------------------------------------------------------------
+// Gerätelokale Kopie der ~7.140 BLS-Lebensmittel (© Max Rubner-Institut,
+// CC BY 4.0). Wird beim ersten Start aus app/assets/data/bls_foods.json
+// befüllt (siehe seedBlsFoods.ts). Quelle für Zutaten-Autocomplete und
+// Nährwert-Berechnung. Werte pro 100 g; NULL = im BLS kein Messwert vorhanden.
+export const blsFoods = sqliteTable("bls_foods", {
+  code: text("code").primaryKey(), // BLS-Code, z.B. "F110100" (= Apfel roh)
+  name: text("name").notNull(), // Originalname, z.B. "Apfel roh"
+  // Normalisierte Fassung (klein, Umlaute gefaltet) für tolerante LIKE-Suche.
+  // Befüllt von normalizeBlsSearch() in seedBlsFoods.ts.
+  nameSearch: text("name_search").notNull(),
+  // name_search ohne Leerzeichen/Satzzeichen — damit "haferflocken" auch
+  // "Hafer Flocken" findet. Befüllt von compactBlsSearch().
+  nameCompact: text("name_compact").notNull(),
+  kcal: real("kcal"),
+  protein: real("protein"),
+  carbs: real("carbs"),
+  fat: real("fat"),
+  fiber: real("fiber"),
+  sugar: real("sugar"),
+});
+
+// -----------------------------------------------------------------------------
 // Typen aus dem Schema ableiten — so muss nichts doppelt geschrieben werden.
 // `typeof recipes.$inferSelect` = Typ wenn man eine Zeile aus der DB liest
 // `typeof recipes.$inferInsert` = Typ wenn man eine Zeile einfügt (manche Felder optional)
@@ -165,3 +197,6 @@ export type NewTag = typeof tags.$inferInsert;
 
 export type Nutrition = typeof nutrition.$inferSelect;
 export type NewNutrition = typeof nutrition.$inferInsert;
+
+export type BlsFood = typeof blsFoods.$inferSelect;
+export type NewBlsFood = typeof blsFoods.$inferInsert;

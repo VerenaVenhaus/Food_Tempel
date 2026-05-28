@@ -4,3 +4,4 @@ export * from "./recipes";
 export * from "./tags";
 export * from "./ingredients";
 export * from "./nutrition";
+export * from "./blsFoods";
