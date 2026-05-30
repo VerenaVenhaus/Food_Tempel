@@ -4,8 +4,10 @@
 
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
+import { getDefaultUnit } from "../data/units";
 import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 import { IngredientNameInput } from "./IngredientNameInput";
+import { UnitPicker } from "./UnitPicker";
 
 // Datentyp, mit dem das Formular intern arbeitet. Beim Speichern wird das
 // in das Repository-Format umgewandelt.
@@ -33,9 +35,19 @@ export function IngredientList({ value, onChange }: Props) {
 
   // Name + zugehöriger BLS-Code kommen zusammen aus dem Autocomplete.
   // blsCode ist null, wenn der User eine eigene (freie) Zutat eingetippt hat.
+  //
+  // Wenn der User noch keine Einheit eingestellt hat, schlagen wir hier
+  // eine sinnvolle Default-Einheit vor (z.B. "Stück" für Apfel, "ml" für
+  // Milch, "Zehe" für Knoblauch). Bereits eingestellte Einheiten lassen
+  // wir bewusst in Ruhe — der User darf seine Auswahl behalten.
   function setNameForRow(index: number, name: string, blsCode: string | null) {
     const next = [...value];
-    next[index] = { ...next[index], name, blsCode };
+    const current = next[index];
+    const unit =
+      current.unit && current.unit.trim().length > 0
+        ? current.unit
+        : getDefaultUnit(blsCode, name);
+    next[index] = { ...current, name, blsCode, unit };
     onChange(next);
   }
 
@@ -69,13 +81,13 @@ export function IngredientList({ value, onChange }: Props) {
               keyboardType="numeric"
               style={[styles.input, styles.qty]}
             />
-            <TextInput
-              value={ing.unit}
-              onChangeText={(t) => update(idx, { unit: t })}
-              placeholder="g"
-              placeholderTextColor={colors.textMuted}
-              style={[styles.input, styles.unit]}
-            />
+            <View style={styles.unit}>
+              <UnitPicker
+                value={ing.unit}
+                onChange={(u) => update(idx, { unit: u })}
+                placeholder="g"
+              />
+            </View>
             <View style={styles.name}>
               <IngredientNameInput
                 value={ing.name}
@@ -139,7 +151,7 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   unit: {
-    width: 60,
+    width: 80,
   },
   name: {
     flex: 1,

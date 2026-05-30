@@ -170,7 +170,7 @@ export function ProfileMenu({ visible, onClose }: Props) {
     >
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.panelRight} onPress={() => {}}>
-          <SafeAreaView edges={["top"]}>
+          <SafeAreaView edges={["top", "bottom"]} style={styles.safeAreaFill}>
             <View style={styles.header}>
               {view === "chooser" ? (
                 <Pressable
@@ -198,7 +198,9 @@ export function ProfileMenu({ visible, onClose }: Props) {
             {view === "chooser" ? (
               <KindChooser onSelect={chooseKind} />
             ) : (
-              <>
+              // flex:1 + column → wir können mit einem Spacer den Abmelden-
+              // Button ans untere Ende des Panels schieben.
+              <View style={styles.menuContent}>
                 <View style={styles.accountBox}>
                   <Text style={styles.accountLabel}>Angemeldet als</Text>
                   <Text style={styles.accountEmail} numberOfLines={1}>
@@ -216,7 +218,7 @@ export function ProfileMenu({ visible, onClose }: Props) {
                     </Text>
                   </View>
                 ) : (
-                  <>
+                  <View style={styles.menuContent}>
                     <View style={styles.divider} />
 
                     <MenuItem
@@ -233,7 +235,10 @@ export function ProfileMenu({ visible, onClose }: Props) {
                     <MenuItem
                       icon="☁️"
                       label="Cloud"
-                      chevron={cloudExpanded ? "up" : "down"}
+                      // Pfeil zeigt nach rechts, wenn zugeklappt — wie bei
+                      // Datei-Browsern: nach rechts = "es kommt noch was,
+                      // wenn ich klicke", nach unten = "ist gerade offen".
+                      chevron={cloudExpanded ? "down" : "right"}
                       onPress={() => setCloudExpanded((v) => !v)}
                     />
                     {cloudExpanded && (
@@ -267,6 +272,11 @@ export function ProfileMenu({ visible, onClose }: Props) {
                       onPress={handleAbout}
                     />
 
+                    {/* Spacer schiebt das Abmelden-Item ans untere Ende des
+                        Menüs, damit es nicht direkt an die Cloud/Über-Gruppe
+                        klebt. */}
+                    <View style={styles.spacer} />
+
                     <View style={styles.divider} />
 
                     <MenuItem
@@ -275,9 +285,9 @@ export function ProfileMenu({ visible, onClose }: Props) {
                       danger
                       onPress={handleSignOut}
                     />
-                  </>
+                  </View>
                 )}
-              </>
+              </View>
             )}
           </SafeAreaView>
         </Pressable>
@@ -351,7 +361,7 @@ function MenuItem({
   label: string;
   onPress: () => void;
   danger?: boolean;
-  chevron?: "down" | "up";
+  chevron?: "down" | "right";
   indent?: boolean;
 }) {
   return (
@@ -371,7 +381,7 @@ function MenuItem({
       </Text>
       {chevron && (
         <Text style={styles.menuChevron}>
-          {chevron === "down" ? "▾" : "▴"}
+          {chevron === "down" ? "▾" : "▸"}
         </Text>
       )}
     </Pressable>
@@ -392,6 +402,21 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
     borderLeftWidth: 1,
     borderLeftColor: colors.border,
+  },
+  // SafeAreaView muss die ganze Panel-Höhe einnehmen, damit der untere
+  // Spacer im Menü wirklich nach unten drückt (statt nur bis zur natürlichen
+  // Höhe der Items).
+  safeAreaFill: {
+    flex: 1,
+  },
+  // Container für die Menü-Items inkl. Spacer. flex:1 = nimm den ganzen
+  // verfügbaren Platz, damit `spacer` mit flex:1 darin "atmen" kann.
+  menuContent: {
+    flex: 1,
+  },
+  // Leere View mit flex:1 — schiebt den letzten MenuItem ans untere Ende.
+  spacer: {
+    flex: 1,
   },
   header: {
     flexDirection: "row",

@@ -36,10 +36,12 @@ export function convertToGrams(
   if (u === "el" || u === "esslöffel") return quantity * 15;
   if (u === "tasse" || u === "cup" || u === "cups") return quantity * 240;
   if (u === "becher") return quantity * 200;
+  if (u === "kelle" || u === "schöpfkelle") return quantity * 80;
   if (u === "prise") return quantity * 0.3;
   if (u === "messerspitze" || u === "msp") return quantity * 0.5;
   if (u === "schuss") return quantity * 5;
   if (u === "spritzer") return quantity * 2;
+  if (u === "tropfen") return quantity * 0.05; // Bittermandel, Aroma
 
   // Stück-basierte Einheiten
   if (u === "stück" || u === "stk" || u === "pcs" || u === "st")
@@ -48,6 +50,12 @@ export function convertToGrams(
   if (u === "scheibe" || u === "scheiben") return quantity * 25; // Brot/Käse
   if (u === "blatt" || u === "blätter") return quantity * 5; // Lasagne, Salbei
   if (u === "zweig" || u === "zweige") return quantity * 1; // Thymian, Rosmarin
+  if (u === "rispe" || u === "rispen") return quantity * 150; // Strauchtomaten
+  if (u === "stiel" || u === "stiele") return quantity * 40; // Sellerie
+  if (u === "spalte" || u === "spalten") return quantity * 25; // Apfel-, Orangenspalte
+  if (u === "ring" || u === "ringe") return quantity * 8; // Zwiebel-, Paprika-Ring
+  if (u === "streifen") return quantity * 15;
+  if (u === "stick" || u === "sticks") return quantity * 4; // Zimt-Stick
   if (u === "bund") return quantity * 30; // Petersilie & Co.
   if (u === "stange" || u === "stangen") return quantity * 200; // Lauch, Sellerie
   if (u === "handvoll") return quantity * 30;
@@ -55,13 +63,21 @@ export function convertToGrams(
   if (u === "knolle" || u === "knollen") return quantity * 80;
   if (u === "kugel" || u === "kugeln") return quantity * 50; // Eiskugel
   if (u === "schale" || u === "schalen") return quantity * 150;
+  if (u === "filet" || u === "filets") return quantity * 150; // Fisch, Geflügel
+  if (u === "brust" || u === "brüste") return quantity * 180; // Hähnchen
+  if (u === "keule" || u === "keulen") return quantity * 220;
+  if (u === "schenkel") return quantity * 180;
+  if (u === "hälfte" || u === "hälften") return quantity * 100;
+  if (u === "viertel") return quantity * 60;
+  if (u === "portion" || u === "portionen") return quantity * 200;
 
   // Verpackungseinheiten
   if (u === "dose" || u === "dosen") return quantity * 200;
   if (u === "glas" || u === "gläser") return quantity * 200;
   if (u === "flasche" || u === "flaschen") return quantity * 250;
   if (u === "tüte" || u === "tüten") return quantity * 250;
-  if (u === "packung" || u === "packungen") return quantity * 500;
+  if (u === "beutel") return quantity * 100; // Tee, Soßenbeutel etc. — sehr grob
+  if (u === "packung" || u === "packungen" || u === "pkg") return quantity * 500;
   if (u === "päckchen") return quantity * 8; // Vanillezucker o.ä.
   if (u === "würfel") return quantity * 42; // Frischhefe-Würfel
   if (u === "riegel") return quantity * 100;

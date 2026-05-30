@@ -429,6 +429,10 @@ export function RecipeFormScreen({ navigation, route }: Props) {
           value={shortDescription}
           onChangeText={setShortDescription}
           placeholder="1-2 Zeilen, erscheint in der Rezept-Karte"
+          // Wächst mit dem Inhalt nach unten — die Karte auf der Hauptseite
+          // kürzt selber per numberOfLines={1}, hier im Editor will der User
+          // den ganzen Text sehen können.
+          growable
         />
 
         <FormField
