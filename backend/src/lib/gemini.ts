@@ -20,10 +20,15 @@ export function getGemini(): GoogleGenAI {
   return cached;
 }
 
-// Gemini 2.5 Flash — Vision-fähig, aktuell im Free Tier (10 RPM, 250 RPD).
+// Gemini 2.5 Flash Lite — Vision-fähig, Free Tier (15 RPM, 1000 RPD),
+// etwas weniger akkurat als 2.5-flash, dafür großzügigere Limits.
+//
 // Historie der Modellwechsel:
-//   - gemini-2.0-flash: ist 2025 aus dem Free Tier rausgefallen
-//   - gemini-1.5-flash: Anfang 2026 abgeschaltet
-// Falls 2.5-flash mal eng wird, kann man auf "gemini-2.5-flash-lite" wechseln —
-// hat großzügigere Limits (15 RPM, 1000 RPD), etwas weniger akkurat.
-export const MODEL = "gemini-2.5-flash";
+//   - gemini-2.0-flash:    2025 aus dem Free Tier rausgefallen
+//   - gemini-1.5-flash:    Anfang 2026 abgeschaltet
+//   - gemini-2.5-flash:    Mai 2026 vom Backend aus (Frankfurt-Region)
+//                          mit "User location is not supported" abgewiesen
+//                          → Wechsel auf -lite. Falls auch -lite die EU-
+//                          Sperre triggert, ist die einzige saubere Lösung
+//                          ein Render-Service in einer US-Region (Plan B).
+export const MODEL = "gemini-2.5-flash-lite";

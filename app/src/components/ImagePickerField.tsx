@@ -3,13 +3,16 @@
 // Vorschau. Beim Klick erscheinen native iOS/Android-Dialoge für die
 // Auswahl bzw. die Kamera.
 //
-// Wir speichern hier nur den lokalen URI (z.B. "file:///data/.../recipe.jpg").
-// Das Bild bleibt in Expos eigenem Cache-Ordner. In Phase 9 ziehen wir
-// es ggf. in den permanenten App-Speicher oder Cloud-Storage um.
+// PERSISTIEREN: Direkt nach dem Picken kopieren wir das Bild aus dem
+// Cache-Verzeichnis (wo expo-image-picker es ablegt) ins permanente
+// App-Verzeichnis. Sonst sind die Bilder nach App-Updates oder
+// Android-Cache-Cleanups weg, obwohl die DB sie noch referenziert.
+// Logik dazu in `app/src/lib/imageStorage.ts`.
 
 import * as ImagePicker from "expo-image-picker";
 import { Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { persistImage } from "../lib/imageStorage";
 import { colors, fontSize, fontWeight, radius, spacing } from "../theme";
 
 type Props = {
@@ -37,7 +40,17 @@ export function ImagePickerField({ value, onChange }: Props) {
     });
 
     if (!result.canceled && result.assets[0]) {
-      onChange(result.assets[0].uri);
+      // Bild aus dem Cache ins permanente App-Verzeichnis kopieren — sonst
+      // ist es nach dem nächsten App-Update / Cache-Cleanup weg.
+      try {
+        const persistedUri = persistImage(result.assets[0].uri);
+        onChange(persistedUri);
+      } catch (err) {
+        Alert.alert(
+          "Bild konnte nicht gespeichert werden",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
   }
 
@@ -59,7 +72,16 @@ export function ImagePickerField({ value, onChange }: Props) {
     });
 
     if (!result.canceled && result.assets[0]) {
-      onChange(result.assets[0].uri);
+      // Wie oben: Foto sofort persistieren, statt die Cache-URI zu nutzen.
+      try {
+        const persistedUri = persistImage(result.assets[0].uri);
+        onChange(persistedUri);
+      } catch (err) {
+        Alert.alert(
+          "Bild konnte nicht gespeichert werden",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
   }
 
